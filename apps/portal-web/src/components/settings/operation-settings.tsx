@@ -39,6 +39,8 @@ export function OperationSettings() {
   const [fileName, setFileName] = useState<string>("");
   const [isProcessingDeletion, setIsProcessingDeletion] = useState(false);
   const [biostarSyncing, setBiostarSyncing] = useState(false);
+  const isBiostarSyncEnabled =
+    process.env.NEXT_PUBLIC_ENABLE_BIOSTAR_SYNC === "true";
 
   const handleSync = async () => {
     const user = Cookies.get("user");
@@ -401,31 +403,36 @@ export function OperationSettings() {
             )}
           </Button>
 
-          <div className="space-y-2 pt-2">
-            <p className="text-sm font-medium text-foreground">Biostar Sync</p>
-            <p className="text-sm text-muted-foreground">
-              This will only sync the data from Biostar to the local database.
-            </p>
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleBiostarSync}
-              disabled={biostarSyncing}
-              aria-label="Run Biostar photos sync only"
-            >
-              {biostarSyncing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Syncing...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-5 w-5 mr-2" />
-                  Run Biostar Sync
-                </>
-              )}
-            </Button>
-          </div>
+          {isBiostarSyncEnabled && (
+            <div className="space-y-2 pt-2">
+              <p className="text-sm font-medium text-foreground">
+                Biostar Sync
+              </p>
+              <p className="text-sm text-muted-foreground">
+                This will only sync the data from Biostar to the local
+                database.
+              </p>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={handleBiostarSync}
+                disabled={biostarSyncing}
+                aria-label="Run Biostar photos sync only"
+              >
+                {biostarSyncing ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Syncing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-5 w-5 mr-2" />
+                    Run Biostar Sync
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
           <p className="text-sm text-gray-500">
             Only one sync can run at a time. Please wait for the current sync to
             finish before starting another.

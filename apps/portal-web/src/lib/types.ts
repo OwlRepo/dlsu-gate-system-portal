@@ -18,6 +18,7 @@ export interface EventProps {
 export interface ScanProps {
   user: UserProps;
   device: DeviceProps;
+  gate?: string;
   datetime: string;
   remarks?: string | null | undefined;
   livedName: string | null | undefined;
@@ -77,6 +78,7 @@ export interface ReportData {
   status: string;
   activity: string;
   device: string;
+  gate?: string;
 }
 
 export interface ReportsList {

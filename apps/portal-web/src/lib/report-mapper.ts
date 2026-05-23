@@ -51,5 +51,6 @@ export const mapScanToReportData = (scan: ScanProps): ReportData => {
     status: getEntryStatus(scan),
     activity: mapReportActivity(scan),
     device: scan.device.name || scan.device.id,
+    gate: scan.gate || scan.device.name || scan.device.id || "Unknown Gate",
   };
 };

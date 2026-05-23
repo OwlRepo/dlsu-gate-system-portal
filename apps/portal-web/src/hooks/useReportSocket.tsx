@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { io } from "socket.io-client";
+import { isMockMode } from "@/lib/mock-mode";
+import { mockSocketStats } from "@/mocks/data/dashboard";
 
 interface GateStats {
   onPremise: number;
@@ -18,6 +20,23 @@ export const useReportsSocket = () => {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
+    if (isMockMode()) {
+      setIsConnected(true);
+      setStats({
+        ...mockSocketStats,
+        lastUpdated: new Date(),
+      });
+
+      const interval = setInterval(() => {
+        setStats((prev) => ({
+          ...(prev ?? mockSocketStats),
+          lastUpdated: new Date(),
+        }));
+      }, 5000);
+
+      return () => clearInterval(interval);
+    }
+
     const socketUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:9580";
     const socketInstance = io(socketUrl, {
       path: "/socket.io/",

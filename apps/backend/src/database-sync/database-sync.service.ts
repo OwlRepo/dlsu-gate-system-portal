@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SyncSchedule } from './entities/sync-schedule.entity';
@@ -29,6 +34,7 @@ export class DatabaseSyncService {
   private studentMutationLock: Promise<void> = Promise.resolve();
   private sqlConfig: sql.config;
   private readonly schemaEnv: string;
+  private readonly isBiostarSyncEnabled: boolean;
   private readonly logDir = path.join(process.cwd(), 'logs', 'skipped-records');
   private readonly syncedDir = path.join(
     process.cwd(),
@@ -77,6 +83,10 @@ export class DatabaseSyncService {
     const rawEnv = this.configService.get('SOURCE_DB_SCHEMA_ENV') ?? 'main';
     const envValue = String(rawEnv).trim().toLowerCase();
     this.schemaEnv = envValue === 'dasma' ? 'dasma' : 'main';
+    this.isBiostarSyncEnabled =
+      String(this.configService.get('ENABLE_BIOSTAR_SYNC') ?? '')
+        .trim()
+        .toLowerCase() === 'true';
 
     this.initializeSchedules();
 
@@ -109,6 +119,14 @@ export class DatabaseSyncService {
     return this.schemaEnv === 'dasma'
       ? this.dasmaPathService
       : this.mainPathService;
+  }
+
+  private assertBiostarSyncEnabled() {
+    if (!this.isBiostarSyncEnabled) {
+      throw new ForbiddenException(
+        'Biostar sync is disabled for this deployment',
+      );
+    }
   }
 
   private async runWithStudentMutationLock<T>(
@@ -326,8 +344,14 @@ export class DatabaseSyncService {
         try {
           this.logger.log(`Starting combined sync for ${jobName}`);
           await this.executeDatabaseSyncInternal(jobName, false);
-          const biostarJobKey = `biostar-after-${jobName}`;
-          await this.syncFromBiostarInternal(biostarJobKey, false);
+          if (this.isBiostarSyncEnabled) {
+            const biostarJobKey = `biostar-after-${jobName}`;
+            await this.syncFromBiostarInternal(biostarJobKey, false);
+          } else {
+            this.logger.warn(
+              `Biostar sync is disabled; skipping biostar phase for ${jobName}`,
+            );
+          }
 
           const scheduleMatch = jobName.match(/^sync-(\d+)$/);
           if (scheduleMatch) {
@@ -535,6 +559,7 @@ export class DatabaseSyncService {
   }
 
   async getAllBiostarSchedules(): Promise<ScheduledSyncDto[]> {
+    this.assertBiostarSyncEnabled();
     // Dasma: shared schedule (1/2) - delegate to main schedules
     if (this.schemaEnv === 'dasma') {
       return this.getAllSchedules();
@@ -564,6 +589,7 @@ export class DatabaseSyncService {
   }
 
   async updateBiostarSchedule(scheduleNumber: number, time: string) {
+    this.assertBiostarSyncEnabled();
     if (scheduleNumber !== 1 && scheduleNumber !== 2) {
       throw new BadRequestException('Schedule number must be 1 or 2');
     }
@@ -610,6 +636,7 @@ export class DatabaseSyncService {
   }
 
   async triggerBiostarSync() {
+    this.assertBiostarSyncEnabled();
     try {
       await this.syncFromBiostar();
       return {
@@ -626,6 +653,7 @@ export class DatabaseSyncService {
   }
 
   async syncFromBiostar(jobName?: string): Promise<void> {
+    this.assertBiostarSyncEnabled();
     return this.syncFromBiostarInternal(jobName, true);
   }
 
@@ -633,6 +661,7 @@ export class DatabaseSyncService {
     jobName: string | undefined,
     useGlobalLock: boolean,
   ): Promise<void> {
+    this.assertBiostarSyncEnabled();
     const jobKey = jobName || 'biostar-manual-sync';
 
     if (this.activeJobs.get(jobKey)) {

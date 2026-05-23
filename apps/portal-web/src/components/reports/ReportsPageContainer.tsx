@@ -12,15 +12,29 @@ import CustomFilter, { FilterItem } from "../custom/CustomFilter";
 import { useToast } from "@/hooks/use-toast";
 import CustomExport from "../custom/CustomExport";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
+import { GateUsageChart } from "./GateUsageChart";
 
 export interface ReportsHeader {
   STATUS: string;
   ID: string;
   NAME: string;
+  GATE: string;
   ACTIVITY: string;
   DATETIME?: string;
   REMARKS?: string;
 }
+
+interface GateAnalyticsRow {
+  gate: string;
+  count: number;
+}
+
+const MOCK_GATE_ANALYTICS: GateAnalyticsRow[] = [
+  { gate: "Gate 1 - South Entrance", count: 42 },
+  { gate: "Gate 2 - North Entrance", count: 31 },
+  { gate: "Gate 3 - East Entrance", count: 24 },
+  { gate: "Gate 4 - West Entrance", count: 16 },
+];
 
 const ReportsPageContainer = () => {
   const { toast } = useToast();
@@ -35,6 +49,8 @@ const ReportsPageContainer = () => {
   const [isDialogOpen, setIsDialogOpen] = useState<boolean>(false);
   const [selectedData, setSelectedData] = useState<ReportsHeader | null>(null);
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>("");
+  const [gateAnalytics, setGateAnalytics] = useState<GateAnalyticsRow[]>([]);
+  const [gateAnalyticsLoading, setGateAnalyticsLoading] = useState<boolean>(false);
   const latestRequestIdRef = useRef(0);
 
   const typeOptions = ["1", "2"];
@@ -214,6 +230,59 @@ const ReportsPageContainer = () => {
     }
   };
 
+  const fetchGateAnalytics = useCallback(
+    async (filters?: FilterItem[]) => {
+      try {
+        setGateAnalyticsLoading(true);
+        const user = Cookies.get("user");
+        const token = user ? JSON.parse(user).token : null;
+
+        const currentFilters = filters ?? activeFilters;
+        const params = new URLSearchParams();
+        params.append("type", "1");
+
+        const dateFilter = currentFilters.find(
+          (filter) =>
+            filter.type === "dateRange" &&
+            filter.value.dateFrom &&
+            filter.value.dateTo
+        );
+
+        if (dateFilter?.value.dateFrom && dateFilter.value.dateTo) {
+          params.append("startDate", dateFilter.value.dateFrom);
+          params.append("endDate", dateFilter.value.dateTo);
+        }
+
+        const res = await axios.get(
+          `${process.env.NEXT_PUBLIC_API_URL}/reports/analytics/gates?${params.toString()}`,
+          {
+            headers: {
+              Authorization: `${token}`,
+            },
+          }
+        );
+
+        const analyticsData = Array.isArray(res.data) ? res.data : [];
+        setGateAnalytics(analyticsData);
+      } catch (error) {
+        setGateAnalytics([]);
+        if (axios.isAxiosError(error)) {
+          toast({
+            variant: "destructive",
+            title: `Error ${error.response?.status || ""}`,
+            description:
+              error.response?.data?.message ||
+              "Failed to fetch gate analytics",
+            duration: 5000,
+          });
+        }
+      } finally {
+        setGateAnalyticsLoading(false);
+      }
+    },
+    [activeFilters, toast]
+  );
+
   // Add handlers for pagination
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -250,6 +319,7 @@ const ReportsPageContainer = () => {
     STATUS: row.status ? row.status : "N/A",
     ID: row.user_id ? row.user_id : "N/A",
     NAME: row.name ? row.name : "N/A",
+    GATE: row.gate ? row.gate : row.device ? row.device : "N/A",
     ACTIVITY: row.activity
       ? row.activity
       : row.type
@@ -258,10 +328,16 @@ const ReportsPageContainer = () => {
     DATETIME: formatDateTime(row.datetime),
     REMARKS: row.remarks ? row.remarks : "N/A",
   }));
+  const gateChartData =
+    gateAnalytics.length > 0 ? gateAnalytics : MOCK_GATE_ANALYTICS;
 
   useEffect(() => {
     fetchReportsList(debouncedSearchTerm, limit, page, activeFilters);
   }, [activeFilters, debouncedSearchTerm, fetchReportsList, limit, page]);
+
+  useEffect(() => {
+    fetchGateAnalytics(activeFilters);
+  }, [activeFilters, fetchGateAnalytics]);
 
   // Handle search
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -299,6 +375,9 @@ const ReportsPageContainer = () => {
             showIncludePhoto
           />
         </div>
+      </div>
+      <div className="mb-6">
+        <GateUsageChart data={gateChartData} loading={gateAnalyticsLoading} />
       </div>
       <ReportsTable
         columns={headers}

@@ -52,6 +52,20 @@ export class GenerateCSVDto {
   endDate: string;
 }
 
+export class GateAnalyticsQueryDto {
+  @IsOptional()
+  @IsEnum(['1', '2'], { message: 'Type must be either "1" or "2"' })
+  type?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}
+
 @ApiTags('Reports')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -310,6 +324,59 @@ export class ReportsController {
       return this.reportsService.createBulk(createReportDto);
     }
     return this.reportsService.create(createReportDto);
+  }
+
+  @Get('analytics/gates')
+  @ApiOperation({
+    summary: 'Get gate usage analytics',
+    description:
+      'Returns gate usage counts grouped by gate name. Defaults to type=1.',
+  })
+  @ApiQuery({
+    name: 'type',
+    required: false,
+    enum: ['1', '2'],
+    description: 'Filter by report type (default: 1)',
+  })
+  @ApiQuery({
+    name: 'startDate',
+    required: false,
+    type: String,
+    description: 'Start date (YYYY-MM-DD), must be paired with endDate',
+  })
+  @ApiQuery({
+    name: 'endDate',
+    required: false,
+    type: String,
+    description: 'End date (YYYY-MM-DD), must be paired with startDate',
+  })
+  async getGateAnalytics(@Query() query: GateAnalyticsQueryDto) {
+    if ((query.startDate && !query.endDate) || (!query.startDate && query.endDate)) {
+      throw new UnprocessableEntityException(
+        'Both startDate and endDate must be provided together',
+      );
+    }
+
+    if (query.startDate && query.endDate) {
+      const start = new Date(query.startDate);
+      const end = new Date(query.endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        throw new UnprocessableEntityException(
+          'Invalid date format. Use YYYY-MM-DD',
+        );
+      }
+      if (start > end) {
+        throw new UnprocessableEntityException(
+          'Start date must be before or equal to end date',
+        );
+      }
+    }
+
+    return this.reportsService.getGateAnalytics(
+      query.type || '1',
+      query.startDate,
+      query.endDate,
+    );
   }
 
   @Get('generate-csv')

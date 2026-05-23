@@ -9,6 +9,7 @@ import { AppBar } from '@/components/app-bar';
 import { Toaster } from '@/components/ui/toaster';
 import { IdleScreensaver } from '@/components/IdleScreensaver';
 import { ValidateToken } from '@/components/ValidateToken';
+import { MockModeProvider } from '@/components/providers/mock-mode-provider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -28,21 +29,23 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <AuthProvider>
-          <SidebarProvider>
-            <div className="flex min-h-screen bg-gray-50 w-screen">
-              <AppSidebar />
-              {/* <main className="flex-1 overflow-auto">{children}</main> */}
-              <div className="flex flex-col flex-1">
-                <AppBar /> {/* Use the AppBar component here */}
-                <main className="flex-1 overflow-auto">{children}</main>
+        <MockModeProvider>
+          <AuthProvider>
+            <SidebarProvider>
+              <div className="flex min-h-screen bg-gray-50 w-screen">
+                <AppSidebar />
+                {/* <main className="flex-1 overflow-auto">{children}</main> */}
+                <div className="flex flex-col flex-1">
+                  <AppBar /> {/* Use the AppBar component here */}
+                  <main className="flex-1 overflow-auto">{children}</main>
+                </div>
+                <ValidateToken />
+                <IdleScreensaver />
               </div>
-              <ValidateToken />
-              <IdleScreensaver />
-            </div>
-            <Toaster />
-          </SidebarProvider>
-        </AuthProvider>
+              <Toaster />
+            </SidebarProvider>
+          </AuthProvider>
+        </MockModeProvider>
       </body>
     </html>
   );

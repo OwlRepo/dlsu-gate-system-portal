@@ -31,6 +31,9 @@ export class Report {
   @Column({ type: 'text', nullable: true })
   device: string;
 
+  @Column({ type: 'text', nullable: true })
+  gate: string;
+
   @CreateDateColumn()
   created_at: Date;
 }

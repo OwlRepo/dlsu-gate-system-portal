@@ -19,6 +19,8 @@ import debounce from "lodash/debounce";
 import useUserToken from "@/hooks/useUserToken";
 import { useReportsSocket } from "@/hooks/useReportSocket";
 import { mapScanToReportData } from "@/lib/report-mapper";
+import { isMockMode } from "@/lib/mock-mode";
+import { mockDashboardScans } from "@/mocks/data/dashboard";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +45,28 @@ export function Dashboard() {
       `${userId}-${deviceId}-${datetime}-${eventTypeName ?? "UNKNOWN"}`,
     []
   );
+  const normalizeDeviceId = useCallback((rawDeviceId: unknown): string => {
+    if (typeof rawDeviceId === "string" || typeof rawDeviceId === "number") {
+      return String(rawDeviceId).trim();
+    }
+
+    if (rawDeviceId && typeof rawDeviceId === "object") {
+      const deviceObject = rawDeviceId as { id?: unknown; device_id?: unknown };
+      const nestedId = deviceObject.device_id ?? deviceObject.id;
+      if (typeof nestedId === "string" || typeof nestedId === "number") {
+        return String(nestedId).trim();
+      }
+    }
+
+    return "";
+  }, []);
+
+  const normalizeUserId = useCallback((rawUserId: unknown): string => {
+    if (typeof rawUserId === "string" || typeof rawUserId === "number") {
+      return String(rawUserId).trim();
+    }
+    return "";
+  }, []);
 
   const sendReport = useCallback(
     async (reportData: ReportData) => {
@@ -152,6 +176,29 @@ export function Dashboard() {
   // };
 
   useEffect(() => {
+    if (isMockMode()) {
+      const seedScans = mockDashboardScans.map((scan, index) => ({
+        ...scan,
+        datetime: new Date(Date.now() - index * 60000).toISOString(),
+      }));
+
+      setTableQueue(seedScans);
+
+      const interval = setInterval(() => {
+        const next = seedScans[Math.floor(Math.random() * seedScans.length)];
+        const synthetic: ScanProps = {
+          ...next,
+          datetime: new Date().toISOString(),
+        };
+        setTableQueue((prevQueue) => {
+          const newQueue = [synthetic, ...prevQueue];
+          return newQueue.length > 25 ? newQueue.slice(0, 25) : newQueue;
+        });
+      }, 6000);
+
+      return () => clearInterval(interval);
+    }
+
     const fetchSessionId = async () => {
       try {
         const response = await axios.post(
@@ -187,15 +234,17 @@ export function Dashboard() {
             const eventData = JSON.parse(event.data);
             if (eventData.Event) {
               const { user_id, device_id, datetime, tna_key, event_type_id } = eventData.Event;
+              const normalizedUserId = normalizeUserId(user_id);
+              const normalizedDeviceId = normalizeDeviceId(device_id);
 
-              if (!user_id || !device_id || !datetime) {
+              if (!normalizedUserId || !normalizedDeviceId || !datetime) {
                 return;
               }
 
               // Ref-backed guard prevents stale closure dedupe bugs.
               const eventKey = buildEventKey(
-                user_id,
-                device_id,
+                normalizedUserId,
+                normalizedDeviceId,
                 datetime,
                 event_type_id?.name
               );
@@ -206,8 +255,15 @@ export function Dashboard() {
 
               debouncedFetchUserData(
                 response.data.bsSessionId,
-                user_id,
-                device_id,
+                {
+                  user_id: normalizedUserId,
+                  name: "",
+                  photo_exist: false,
+                },
+                {
+                  id: normalizedDeviceId,
+                  name: `Device ${normalizedDeviceId}`,
+                },
                 tna_key,
                 datetime,
                 event_type_id
@@ -317,6 +373,9 @@ export function Dashboard() {
       const livedNameField = userCustomFields.find(
         (field: CustomField) => field.custom_field.name === "Lived Name"
       );
+      const gateField = userCustomFields.find(
+        (field: CustomField) => field.custom_field.name === "Gate"
+      );
       const userData: UserProps = {
         user_id: response.data.data.User.user_id,
         name: response.data.data.User.name,
@@ -325,13 +384,22 @@ export function Dashboard() {
 
       const deviceData: DeviceProps = {
         id: device.id,
-        name: `Device ${device.id}`,
+        name: device.name || `Device ${device.id}`,
       };
 
       const remarks = remarksField ? (remarksField.item as string) : undefined;
       const livedName = livedNameField
         ? (livedNameField.item as string)
         : undefined;
+      const gateValue =
+        gateField && gateField.item !== null && gateField.item !== undefined
+          ? String(gateField.item).trim()
+          : "";
+      const gate =
+        gateValue ||
+        (deviceData.name ? String(deviceData.name).trim() : "") ||
+        (deviceData.id ? String(deviceData.id).trim() : "") ||
+        "Unknown Gate";
 
       const disabled = response.data.data.User.disabled;
       const expiryDate = response.data.data.User.expiry_datetime;
@@ -347,6 +415,7 @@ export function Dashboard() {
         expiryDate,
         tnaKey: tna_key,
         eventTypeId: event_type_id.name,
+        gate,
       };
 
       // setDevicesData((prevData) => ({

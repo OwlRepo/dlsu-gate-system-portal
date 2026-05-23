@@ -46,4 +46,13 @@ export class CreateReportDto {
   @IsOptional()
   @IsString()
   device?: string;
+
+  @ApiProperty({
+    example: 'Gate 1 - South Entrance',
+    description: 'Human-readable gate label',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  gate?: string;
 }

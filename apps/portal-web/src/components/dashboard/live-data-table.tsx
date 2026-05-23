@@ -17,6 +17,7 @@ interface LiveDataRow {
   STATUS: ScanProps;
   ID: string;
   NAME: string;
+  GATE: string;
   ACTIVITY: string;
   DATETIME?: string;
   userImage?: string;
@@ -45,6 +46,7 @@ export function LiveDataTable({ data, handleClear }: LiveData) {
     STATUS: row,
     ID: row.user.user_id ? row.user.user_id : "N/A",
     NAME: row.user.name ? row.user.name : "N/A",
+    GATE: row.gate || row.device.name || row.device.id || "N/A",
     ACTIVITY: row.eventTypeId && row.eventTypeId.includes("APB") ? "APB_VIOLATION" : (row.tnaKey ? (row.tnaKey === "1" ? "IN" : "OUT") : "N/A"),
     DATETIME: formatLiveDateTime(row.datetime),
     event: row.eventTypeId ? row.eventTypeId : "N/A",

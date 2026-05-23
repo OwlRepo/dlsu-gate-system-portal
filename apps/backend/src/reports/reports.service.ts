@@ -114,6 +114,35 @@ export class ReportsService {
     };
   }
 
+  async getGateAnalytics(type: string = '1', startDate?: string, endDate?: string) {
+    const queryBuilder = this.reportRepository.createQueryBuilder('report');
+
+    queryBuilder
+      .select("COALESCE(NULLIF(report.gate, ''), NULLIF(report.device, ''), 'Unknown Gate')", 'gate')
+      .addSelect('COUNT(*)', 'count');
+
+    if (type) {
+      queryBuilder.andWhere('report.type = :type', { type });
+    }
+
+    if (startDate && endDate) {
+      queryBuilder.andWhere('report.datetime BETWEEN :startDate AND :endDate', {
+        startDate: `${startDate} 00:00:00`,
+        endDate: `${endDate} 23:59:59`,
+      });
+    }
+
+    const rows = await queryBuilder
+      .groupBy('gate')
+      .orderBy('COUNT(*)', 'DESC')
+      .getRawMany<{ gate: string; count: string }>();
+
+    return rows.map((row) => ({
+      gate: row.gate,
+      count: Number(row.count) || 0,
+    }));
+  }
+
   async searchContains(searchString: string) {
     return await this.reportRepository.find({
       where: [
@@ -228,6 +257,7 @@ export class ReportsService {
       { id: 'group', title: 'group' },
       { id: 'status', title: 'Status' },
       { id: 'device', title: 'Device' }, // Added device header
+      { id: 'gate', title: 'Gate' },
     ];
 
     // Add photo header if needed
@@ -261,6 +291,7 @@ export class ReportsService {
         group: student?.group ?? '',
         status: report.status || 'null',
         device: report.device || 'null', // Added device field
+        gate: report.gate || report.device || 'null',
       };
 
       if (includePhoto) {
