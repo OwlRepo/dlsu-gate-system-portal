@@ -6,9 +6,11 @@
     { "label": "build", "type": "shell", "command": "bun run build" },
     { "label": "lint", "type": "shell", "command": "bun run lint" },
     { "label": "typecheck", "type": "shell", "command": "bun run check-types" },
-    { "label": "test:backend", "type": "shell", "command": "bun --cwd apps/backend run test" },
-    { "label": "test:e2e:backend", "type": "shell", "command": "bun --cwd apps/backend run test:e2e" },
+    { "label": "test", "type": "shell", "command": "bun --cwd apps/backend run test" },
+    { "label": "test:watch", "type": "shell", "command": "bun --cwd apps/backend run test:watch" },
+    { "label": "e2e", "type": "shell", "command": "bun --cwd apps/backend run test:e2e" },
+    { "label": "format", "type": "shell", "command": "bun run format" },
     { "label": "db:migrate", "type": "shell", "command": "bun --cwd apps/backend run migration:run" },
-    { "label": "deploy:ws2022", "type": "shell", "command": "bun run deploy:ws2022" }
+    { "label": "db:generate", "type": "shell", "command": "bun --cwd apps/backend run migration:generate" }
   ]
 }

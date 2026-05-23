@@ -1,4 +1,26 @@
 # Risk Matrix
-- LOW: style, copy, isolated UI
-- MEDIUM: hooks, services, routes, validation
-- HIGH: auth, database schema, migrations, shared utils, build config, CI/CD, dependency upgrades
+
+## LOW
+- styles
+- isolated UI components
+- copy changes
+- small utilities
+
+## MEDIUM
+- hooks
+- services
+- routes
+- data fetching
+- forms
+- validation
+
+## HIGH
+- authentication/authorization
+- database schema/migrations
+- global/shared utilities
+- API response contracts
+- security-sensitive middleware
+- dependency upgrades
+- build config / CI-CD
+
+High-risk changes require explicit confirmation before implementation.

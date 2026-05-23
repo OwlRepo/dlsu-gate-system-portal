@@ -1,2 +1,7 @@
 # File Index
-Use ripgrep and code-map for precise file discovery. Keep this index concise and update incrementally after substantive edits.
+
+Use this schema for each entry:
+
+| File path | Purpose | Main exports | Dependencies | Consumers | Usage patterns | Risk |
+|---|---|---|---|---|---|---|
+| `...` | `...` | `...` | `...` | `...` | `...` | `LOW/MEDIUM/HIGH` |

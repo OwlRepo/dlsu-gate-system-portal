@@ -1,7 +1,18 @@
-# Verification
-Preferred order:
-1. `bun run check-types`
-2. `bun run lint`
+# Verification Strategy
+
+Run strongest available safe checks in order:
+1. `typecheck`
+2. `lint`
 3. related tests
-4. full tests
-5. `bun run build`
+4. full test suite (if reasonable)
+5. `build`
+
+## If command is missing
+Document as: `Not detected.`
+
+## If command fails
+Report:
+- command
+- failure summary
+- likely cause
+- whether related to your change

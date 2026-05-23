@@ -1,6 +1,18 @@
-# Local Workflow
-- Start Codex in VS Code terminal at repo root.
-- Give scoped tasks with exact file areas.
-- Use plan-only when changes are medium/high risk.
-- Use implementation mode after plan approval.
-- Use review mode for bug/risk-focused inspections.
+# Codex Local Workflow
+
+## Start
+- Open VS Code terminal at repo root.
+- Start Codex CLI in this workspace.
+
+## Scoped Tasking
+- Provide task + expected behavior + specific paths.
+- Point Codex to `docs/ai/entry-point.md` for context loading.
+
+## Token Efficiency
+- Ask for relevant index/architecture/workflow docs only.
+- Avoid full-repo reads unless indexes are stale.
+
+## Modes to Request
+- Plan-only mode: deterministic plan before edits.
+- Implementation mode: execute approved plan.
+- Review mode: bug/risk/test focused review only.
