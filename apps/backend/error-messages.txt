@@ -1,0 +1,216 @@
+{
+  "auth": {
+    "login": {
+      "401": {
+        "message": "Invalid credentials",
+        "details": [
+          "Invalid username",
+          "Invalid password"
+        ]
+      },
+      "403": {
+        "message": "Account is not active"
+      }
+    },
+    "validate": {
+      "401": {
+        "message": "Unauthorized",
+        "details": [
+          "No token provided",
+          "Invalid token",
+          "Invalid user type"
+        ]
+      },
+      "404": {
+        "message": "User not found"
+      }
+    }
+  },
+
+  "admin": {
+    "general": {
+      "401": {
+        "message": "Unauthorized - Invalid or missing authentication token"
+      },
+      "403": {
+        "message": "Forbidden - Insufficient permissions"
+      }
+    },
+    "findOne": {
+      "404": {
+        "message": "Admin not found"
+      }
+    },
+    "update": {
+      "403": {
+        "message": "To deactivate users, please use the /users/bulk-deactivate endpoint instead"
+      },
+      "409": {
+        "message": "Admin with email {email} already exists"
+      }
+    }
+  },
+
+  "superAdmin": {
+    "general": {
+      "401": {
+        "message": "Unauthorized - Invalid or missing authentication token"
+      },
+      "403": {
+        "message": "Only super admins can access this endpoint"
+      }
+    },
+    "createAdmin": {
+      "403": {
+        "message": "Only super admins can create new admins"
+      }
+    },
+    "findOne": {
+      "404": {
+        "message": "Super admin not found"
+      }
+    },
+    "update": {
+      "403": {
+        "message": "To deactivate users, please use the /users/bulk-deactivate endpoint instead"
+      }
+    }
+  },
+
+  "employee": {
+    "general": {
+      "401": {
+        "message": "Unauthorized - Invalid or missing authentication token"
+      },
+      "403": {
+        "message": "Forbidden - Requires Admin privileges"
+      }
+    },
+    "findOne": {
+      "404": {
+        "message": "Employee not found"
+      }
+    },
+    "update": {
+      "400": {
+        "message": "Invalid input data"
+      },
+      "403": {
+        "message": "To deactivate users, please use the /users/bulk-deactivate endpoint instead"
+      }
+    }
+  },
+
+  "databaseSync": {
+    "schedule": {
+      "400": {
+        "message": "Invalid military time format. Use HH:mm (00:00-23:59)"
+      }
+    },
+    "queue": {
+      "400": {
+        "message": "Queue is full - maximum 4 pending syncs allowed"
+      },
+      "404": {
+        "message": "Queue item not found"
+      },
+      "409": {
+        "message": "Cannot delete - sync is already in progress"
+      }
+    },
+    "deleteUsers": {
+      "400": {
+        "message": "Bad Request",
+        "details": [
+          "No file uploaded",
+          "Either userIds array or CSV file must be provided",
+          "CSV file must have 'user_ids' as the header",
+          "No valid user IDs found in CSV file",
+          "Error parsing CSV file: {error}"
+        ]
+      }
+    }
+  },
+
+  "reports": {
+    "general": {
+      "422": {
+        "message": "Validation Error",
+        "details": [
+          "Invalid date format. Use YYYY-MM-DD",
+          "Start date must be before or equal to end date",
+          "Date range cannot exceed 6 months"
+        ]
+      }
+    },
+    "generateCSV": {
+      "500": {
+        "message": "Internal Server Error",
+        "details": [
+          "Failed to generate CSV file - missing file information",
+          "Failed to generate CSV report"
+        ]
+      }
+    }
+  },
+
+  "screensaver": {
+    "general": {
+      "401": {
+        "message": "Unauthorized - Invalid or missing authentication token"
+      }
+    },
+    "get": {
+      "404": {
+        "message": "No screensaver image found"
+      }
+    },
+    "upload": {
+      "400": {
+        "message": "Bad Request",
+        "details": [
+          "Only JPG, JPEG and PNG files are allowed"
+        ]
+      },
+      "403": {
+        "message": "Only super admins can upload screensavers"
+      },
+      "500": {
+        "message": "Internal Server Error",
+        "details": [
+          "Failed to save screensaver",
+          "Error retrieving screensaver information"
+        ]
+      }
+    }
+  },
+
+  "students": {
+    "general": {
+      "422": {
+        "message": "Validation Error",
+        "details": [
+          "Both startDate and endDate must be provided together",
+          "Invalid date format. Use YYYY-MM-DD",
+          "Start date must be before or equal to end date",
+          "Date range cannot exceed 6 months"
+        ]
+      }
+    }
+  },
+
+  "users": {
+    "general": {
+      "422": {
+        "message": "Validation Error",
+        "details": [
+          "Both startDate and endDate must be provided together",
+          "Invalid date format. Use YYYY-MM-DD",
+          "Start date must be before or equal to end date",
+          "Date range cannot exceed 6 months",
+          "Invalid date range or types"
+        ]
+      }
+    }
+  }
+} 

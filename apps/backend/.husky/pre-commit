@@ -1,0 +1,2 @@
+npm run cursor:update-indexes
+npm test

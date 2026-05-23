@@ -1,0 +1,36 @@
+module.exports = {
+  apps: [
+    {
+      name: 'dlsu-portal-be',
+      script: 'dist/main.js',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      max_memory_restart: '8G',
+      watch: false,
+      env: {
+        NODE_ENV: 'production',
+        PORT: 10580,
+        TYPEORM_CONNECTION_RETRIES: 5,
+        TYPEORM_MAX_QUERY_EXECUTION_TIME: 60000,
+        TYPEORM_ENTITIES_CACHE: true,
+        TYPEORM_POOL_SIZE: 30,
+        NODE_OPTIONS: '--max-old-space-size=8192 --expose-gc --max-http-header-size=16384',
+        KEEP_ALIVE_TIMEOUT: 65000,
+        HEADERS_TIMEOUT: 66000,
+      },
+      merge_logs: true,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      out_file: 'logs/out.log',
+      error_file: 'logs/error.log',
+      kill_timeout: 30000,
+      wait_ready: true,
+      listen_timeout: 30000,
+      max_restarts: 5,
+      min_uptime: '30s',
+      restart_delay: 10000,
+      time: true,
+    },
+  ],
+};
+

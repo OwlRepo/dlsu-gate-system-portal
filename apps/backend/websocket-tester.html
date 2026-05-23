@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Socket.IO Gateway Test</title>
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 2em;
+      }
+      #stats,
+      #logs {
+        margin-top: 1em;
+      }
+      #tokenInput {
+        width: 400px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Socket.IO Gateway Test</h1>
+    <label for="tokenInput">JWT Token (optional):</label>
+    <input
+      type="text"
+      id="tokenInput"
+      placeholder="Paste JWT token here if needed"
+    />
+    <button onclick="connectSocket()">Connect</button>
+    <div id="status"></div>
+    <div id="stats"></div>
+    <div id="logs"></div>
+
+    <script>
+      let socket;
+      const statusDiv = document.getElementById('status');
+      const statsDiv = document.getElementById('stats');
+      const logsDiv = document.getElementById('logs');
+
+      function log(message) {
+        const p = document.createElement('p');
+        p.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+        logsDiv.appendChild(p);
+      }
+
+      function connectSocket() {
+        if (socket && socket.connected) {
+          socket.disconnect();
+        }
+        const token = document.getElementById('tokenInput').value.trim();
+        statusDiv.textContent = 'Connecting...';
+        socket = io('http://192.168.100.112:9580', {
+          path: '/socket.io/',
+          transports: ['websocket', 'polling'],
+          auth: token ? { token } : undefined,
+        });
+
+        socket.on('connect', () => {
+          statusDiv.textContent = '✅ Connected! Socket ID: ' + socket.id;
+          console.log(
+            'Connected to WebSocket' +
+              socket.id +
+              ' with baseurl: http://192.168.100.112:9580/socket.io/',
+          );
+        });
+
+        socket.on('disconnect', () => {
+          statusDiv.textContent = '❌ Disconnected';
+          console.log('Disconnected from WebSocket');
+        });
+
+        socket.on('stats-update', (data) => {
+          console.log('Received stats update');
+          statsDiv.innerHTML = `
+                    <h2>Gate Statistics</h2>
+                    <p><strong>On Premise:</strong> ${data.onPremise}</p>
+                    <p><strong>Entries:</strong> ${data.entry}</p>
+                    <p><strong>Exits:</strong> ${data.exit}</p>
+                    <h3>Access Stats</h3>
+                    <p><strong>Allowed:</strong> ${data.gateAccessStats.allowed}%</p>
+                    <p><strong>Allowed with Remarks:</strong> ${data.gateAccessStats.allowedWithRemarks}%</p>
+                    <p><strong>Not Allowed:</strong> ${data.gateAccessStats.notAllowed}%</p>
+                    <p><strong>Last Updated:</strong> ${new Date(data.lastUpdated).toLocaleString()}</p>
+                `;
+        });
+
+        socket.on('stats-error', (error) => {
+          console.log(`Error: ${error.message}`);
+        });
+
+        socket.on('connect_error', (error) => {
+          statusDiv.textContent = '❌ Connection error';
+          console.log(`Connection error: ${error.message}`);
+        });
+      }
+    </script>
+  </body>
+</html>
