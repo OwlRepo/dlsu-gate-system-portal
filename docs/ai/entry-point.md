@@ -1,6 +1,6 @@
 # AI Entry Point
 
-Any AI agent must start here before code edits.
+Any AI coding agent must start here before code edits.
 
 ## Mandatory Load Order (Token-Efficient)
 1. `docs/ai/architecture/code-map.md`
@@ -18,7 +18,7 @@ Any AI agent must start here before code edits.
 4. semantic repo search
 5. direct file inspection
 
-Avoid full brute-force scans unless indexes are stale/missing.
+Avoid brute-force full-repo scans unless indexes are stale/missing.
 
 ## Task Classification
 - Bug Fix
@@ -44,5 +44,6 @@ Avoid full brute-force scans unless indexes are stale/missing.
 - Dependency Upgrade -> `docs/ai/workflows/dependency-upgrade.md`
 - Documentation Update -> `docs/ai/workflows/enhancement.md`
 
-## Hard Gate Before Editing
-Do not edit until deterministic plan includes all required sections from `implementation-playbook.md`.
+## Hard Gates
+- Do not edit files until deterministic plan is complete per `docs/ai/implementation-playbook.md`.
+- Strict TDD is required for behavior-changing code tasks.

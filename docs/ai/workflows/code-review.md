@@ -5,6 +5,7 @@ Use this workflow when task classification matches this file name.
 
 ## Required context files
 - `docs/ai/entry-point.md`
+- `docs/ai/implementation-playbook.md`
 - `docs/ai/architecture/code-map.md`
 - `docs/ai/architecture/feature-boundaries.md`
 - relevant `docs/ai/file-index/*.md`
@@ -17,23 +18,22 @@ Use this workflow when task classification matches this file name.
 - inspect related tests
 
 ## Planning requirements
-Create deterministic plan using `docs/ai/implementation-playbook.md` sections, including:
+Create deterministic plan with all required sections, including:
 - Behavior Test Matrix
 - Code-Fact Evidence
 
 ## Implementation rules
 - small scoped diffs
-- preserve established architecture patterns
-- ask for explicit confirmation on high-risk changes
+- preserve architecture patterns
+- strict TDD for all behavior-changing code tasks
+- regression test required for bug fixes
+- ask explicit confirmation before high-risk changes
 
 ## Verification commands
 Run strongest safe checks in order from `docs/ai/verification.md`.
 
 ## Documentation updates
-Update affected:
-- architecture docs
-- file indexes
-- workflow notes when patterns change
+Update affected architecture docs and file indexes.
 
 ## Rollback
 Define safe rollback steps before implementation.
