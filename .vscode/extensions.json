@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "openai.chatgpt",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "ms-vscode.vscode-typescript-next",
+    "bradlc.vscode-tailwindcss",
+    "ms-azuretools.vscode-docker",
+    "ms-playwright.playwright",
+    "github.vscode-github-actions"
+  ]
+}

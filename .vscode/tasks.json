@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "install", "type": "shell", "command": "bun install" },
+    { "label": "dev", "type": "shell", "command": "bun run dev" },
+    { "label": "build", "type": "shell", "command": "bun run build" },
+    { "label": "lint", "type": "shell", "command": "bun run lint" },
+    { "label": "typecheck", "type": "shell", "command": "bun run check-types" },
+    { "label": "test:backend", "type": "shell", "command": "bun --cwd apps/backend run test" },
+    { "label": "test:e2e:backend", "type": "shell", "command": "bun --cwd apps/backend run test:e2e" },
+    { "label": "db:migrate", "type": "shell", "command": "bun --cwd apps/backend run migration:run" },
+    { "label": "deploy:ws2022", "type": "shell", "command": "bun run deploy:ws2022" }
+  ]
+}

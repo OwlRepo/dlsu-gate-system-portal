@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
+    "dev": "node ../../scripts/run-with-root-env.mjs next dev --turbopack",
+    "build": "node ../../scripts/run-with-root-env.mjs next build",
+    "start": "node ../../scripts/run-with-root-env.mjs next start",
+    "lint": "node ../../scripts/run-with-root-env.mjs next lint",
+    "check-types": "node ../../scripts/run-with-root-env.mjs tsc --noEmit",
     "docker-fresh-build": "docker compose down -v && docker compose up --build -d",
     "docker-build": "docker compose up --build -d"
   },

@@ -7,6 +7,7 @@ import { Admin } from '../admin/entities/admin.entity';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../auth/auth.module';
+import { join } from 'path';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { AuthModule } from '../auth/auth.module';
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '60m' },
     }),
-    ConfigModule.forRoot(),
+    ConfigModule.forRoot({ envFilePath: join(__dirname, '../../../.env') }),
     AuthModule,
   ],
   controllers: [SuperAdminController],

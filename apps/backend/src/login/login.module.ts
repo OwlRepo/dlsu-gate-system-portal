@@ -12,6 +12,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ScreensaverModule } from '../screensaver/screensaver.module';
 import { SuperAdmin } from '../super-admin/entities/super-admin.entity';
 import { ConfigModule } from '@nestjs/config';
+import { join } from 'path';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { ConfigModule } from '@nestjs/config';
         'e34e5367877d04f91c919816b894a331c2a91908eacb36167e5d40f866cb4e1e3f5877a18975698d26ce49ee990e7d26f0c0f840c51e2d4dde56cdbf5e09affb',
       signOptions: { expiresIn: '2d' },
     }),
-    ConfigModule.forRoot(),
+    ConfigModule.forRoot({ envFilePath: join(__dirname, '../../../.env') }),
     SuperAdminModule,
     AuthModule,
     ScreensaverModule,

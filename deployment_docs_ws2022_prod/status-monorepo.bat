@@ -1,0 +1,8 @@
+@echo off
+setlocal
+sc query DLSUGateMonorepo
+echo.
+powershell -NoProfile -Command "try { $h=Invoke-WebRequest -Uri 'http://localhost:10580/health' -UseBasicParsing -TimeoutSec 5; Write-Host ('HEALTH: '+$h.StatusCode) } catch { Write-Host 'HEALTH: FAILED' }"
+powershell -NoProfile -Command "try { $d=Invoke-WebRequest -Uri 'http://localhost:10580/api/docs' -UseBasicParsing -TimeoutSec 5; Write-Host ('DOCS: '+$d.StatusCode) } catch { Write-Host 'DOCS: FAILED' }"
+powershell -NoProfile -Command "try { $f=Invoke-WebRequest -Uri 'http://localhost:3000' -UseBasicParsing -TimeoutSec 5; Write-Host ('FRONTEND: '+$f.StatusCode) } catch { Write-Host 'FRONTEND: FAILED' }"
+exit /b 0

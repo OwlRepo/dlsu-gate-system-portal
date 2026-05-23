@@ -1,0 +1,13 @@
+# Dev Commands
+- Install: `bun install`
+- Dev all: `bun run dev`
+- Dev backend: `bun run dev:backend`
+- Dev web: `bun run dev:web`
+- Build all: `bun run build`
+- Build backend: `bun run build:backend`
+- Build web: `bun run build:web`
+- Lint: `bun run lint`
+- Typecheck: `bun run check-types`
+- Env checks: `bun run verify:env:backend`, `bun run verify:env:web`
+- Backend tests: `bun --cwd apps/backend run test`
+- Backend e2e: `bun --cwd apps/backend run test:e2e`

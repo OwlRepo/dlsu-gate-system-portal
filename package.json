@@ -4,11 +4,24 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:backend": "turbo run dev --filter=./apps/backend",
+    "dev:web": "turbo run dev --filter=./apps/portal-web",
+    "build:backend": "turbo run build --filter=./apps/backend",
+    "build:web": "turbo run build --filter=./apps/portal-web",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "check-types": "turbo run check-types",
+    "verify:env:backend": "node scripts/verify-env.mjs backend",
+    "verify:env:web": "node scripts/verify-env.mjs web",
+    "deploy:ws2022": "deployment_docs_ws2022_prod/deploy-monorepo.bat",
+    "update:ws2022": "deployment_docs_ws2022_prod/update-monorepo.bat",
+    "status:ws2022": "deployment_docs_ws2022_prod/status-monorepo.bat",
+    "logs:ws2022": "deployment_docs_ws2022_prod/logs-monorepo.bat",
+    "restart:ws2022": "deployment_docs_ws2022_prod/restart-monorepo.bat",
+    "stop:ws2022": "deployment_docs_ws2022_prod/stop-monorepo.bat"
   },
   "devDependencies": {
+    "dotenv": "^16.4.7",
     "prettier": "^3.7.4",
     "turbo": "^2.9.14",
     "typescript": "5.9.2"

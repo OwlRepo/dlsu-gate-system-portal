@@ -21,11 +21,13 @@ import { CacheService } from './services/cache.service';
 import { AuthModule } from './auth/auth.module';
 import { StudentsModule } from './students/students.module';
 import { SyncModule } from './sync/sync.module';
+import { join } from 'path';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: join(__dirname, '../../../.env'),
       load: [databaseConfig],
     }),
     TypeOrmModule.forRootAsync({

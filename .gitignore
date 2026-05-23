@@ -36,3 +36,6 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# runtime uploads
+apps/backend/persistent_uploads/
