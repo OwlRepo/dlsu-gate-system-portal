@@ -1,9 +1,7 @@
-# Cursor AI — Root Agent Entry
+Any AI coding agent working in this backend app must start by reading:
 
-For any task always start by loading:
+@docs/ai/entry-point.md
 
-**@.cursor/rules/entry-point.md**
+Then follow the routing, context-loading, planning, implementation, verification, and safety rules defined there.
 
-Follow the workflow defined in that file before performing analysis, planning, or implementation.
-
-Always prioritize `.cursor` documentation before scanning repository files.
+Always prioritize generated AI documentation before scanning repository files.
