@@ -1,159 +1,172 @@
-# Turborepo starter
+# DLSU Gate System Portal Monorepo
 
-This Turborepo starter is maintained by the Turborepo core team.
+This repository contains the DLSU Gate System as a monorepo:
+- `apps/backend` -> NestJS backend API
+- `apps/portal-web` -> Next.js frontend portal
 
-## Using this example
+Environment is centralized at the repository root:
+- `.env` (local/runtime values)
+- `.env.example` (template)
 
-Run the following command:
+## Prerequisites
+- Node.js 18+
+- Bun 1.2+
+- PostgreSQL (for backend)
+- Optional: Redis / source DB / BioStar services depending on features used
 
-```sh
-npx create-turbo@latest
+## Local Development
+1. Install dependencies:
+```bash
+bun install
 ```
 
-## What's inside?
+2. Configure environment:
+```bash
+cp .env.example .env
+```
+Then update values as needed.
 
-This Turborepo includes the following packages/apps:
-
-### Apps and Packages
-
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
-
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+3. Validate environment keys:
+```bash
+bun run verify:env:backend
+bun run verify:env:web
 ```
 
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo build
-bun dlx turbo build
-bun exec turbo build
+4. Run both apps in development mode:
+```bash
+bun run dev
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+Default ports:
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:10580`
+- Backend docs: `http://localhost:10580/api/docs`
+- Backend health: `http://localhost:10580/health`
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo build --filter=docs
+### Run Individually
+- Backend only:
+```bash
+bun run dev:backend
+```
+- Frontend only:
+```bash
+bun run dev:web
 ```
 
-Without global `turbo`:
-
-```sh
-npx turbo build --filter=docs
-bun exec turbo build --filter=docs
-bun exec turbo build --filter=docs
+## Build and Verification
+- Build both apps:
+```bash
+bun run build
+```
+- Build backend only:
+```bash
+bun run build:backend
+```
+- Build frontend only:
+```bash
+bun run build:web
+```
+- Lint:
+```bash
+bun run lint
+```
+- Type check:
+```bash
+bun run check-types
 ```
 
-### Develop
-
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo dev
+## Backend Testing and DB Scripts
+- Unit tests:
+```bash
+bun --cwd apps/backend run test
+```
+- Watch tests:
+```bash
+bun --cwd apps/backend run test:watch
+```
+- E2E tests:
+```bash
+bun --cwd apps/backend run test:e2e
+```
+- Run migrations:
+```bash
+bun --cwd apps/backend run migration:run
+```
+- Generate migration:
+```bash
+bun --cwd apps/backend run migration:generate
 ```
 
-Without global `turbo`, use your package manager:
+## Windows Server 2022 Deployment (NSSM)
+Deployment scripts are in:
+- `deployment_docs_ws2022_prod/`
 
-```sh
-cd my-turborepo
-npx turbo dev
-bun exec turbo dev
-bun exec turbo dev
+Service name:
+- `DLSUGateMonorepo`
+
+### First-Time Deploy
+Run as **Administrator** in CMD or PowerShell:
+```bat
+deployment_docs_ws2022_prod\deploy-monorepo.bat
 ```
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+What it does:
+- preflight checks (admin, ports, `.env`, tooling)
+- dependency install
+- backend/frontend build
+- backend migration run
+- install/start NSSM service
+- readiness checks for backend + frontend
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
+### Update Deploy
+```bat
+deployment_docs_ws2022_prod\update-monorepo.bat
 ```
 
-Without global `turbo`:
+## Operations / Troubleshooting Scripts
+From repository root on WS2022:
 
-```sh
-npx turbo dev --filter=web
-bun exec turbo dev --filter=web
-bun exec turbo dev --filter=web
+- Service and health status:
+```bat
+deployment_docs_ws2022_prod\status-monorepo.bat
 ```
 
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
+- Live logs (backend + frontend + service):
+```bat
+deployment_docs_ws2022_prod\logs-monorepo.bat
 ```
 
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-bun exec turbo login
-bun exec turbo login
+- Restart service:
+```bat
+deployment_docs_ws2022_prod\restart-monorepo.bat
 ```
 
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
+- Stop service:
+```bat
+deployment_docs_ws2022_prod\stop-monorepo.bat
 ```
 
-Without global `turbo`:
+### Log Locations
+- Per-run logs:
+  - `deployment_docs_ws2022_prod/logs/<timestamp>/`
+- Latest logs snapshot:
+  - `deployment_docs_ws2022_prod/logs/current/`
 
-```sh
-npx turbo link
-bun exec turbo link
-bun exec turbo link
-```
+## Exit Codes (Deployment)
+- `10` prerequisites/admin failure
+- `20` env/port validation failure
+- `30` dependency install failure
+- `40` build failure
+- `50` migration failure
+- `60` service install/start failure
+- `70` readiness/health failure
 
-## Useful Links
+## AI Integration (Codex + ChatGPT)
+- Start with `AGENTS.md`
+- Follow `docs/ai/entry-point.md`
+- Codex local instructions: `.codex/`
+- VS Code task integration: `.vscode/tasks.json`
 
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+## Notes
+- Do not commit real secrets to git.
+- Root `.env` is the shared configuration source for both apps.
