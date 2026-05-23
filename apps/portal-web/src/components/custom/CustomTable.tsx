@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ScanDetailStatus } from "@/lib/types";
+import { getAccessStatus } from "@/lib/access-status";
 
 interface PaginatedTableProps<T> {
   data: T[];
@@ -52,30 +53,9 @@ function CustomTable<T extends Record<string, unknown>>({
     return status.split(";")[0] || "N/A";
   };
 
-  // should put in utils in the future
-  const checkExpiry = (expiryDate: string | undefined) => {
-    if (expiryDate) {
-      const expiry = new Date(expiryDate);
-      const today = new Date();
-      return today > expiry;
-    }
-    return false;
-  };
-
-
   const getLiveStatusColor = (scanDetail?: ScanDetailStatus): string => {
     if (!scanDetail) return "N/A";
-    
-    const isExpired = checkExpiry(scanDetail.expiryDate);
-    const isDisabled = scanDetail.disabled === "true";
-    const hasRemarks = scanDetail.remarks !== "No remarks" && scanDetail.remarks !== null;
-    const isApb = scanDetail.eventTypeId && scanDetail.eventTypeId.includes("APB") || scanDetail.event && scanDetail.event.includes("APB");
-    
-    if (isExpired || isDisabled || isApb) return "RED";
-    if (!isExpired && scanDetail.disabled === "false" && hasRemarks) return "YELLOW";
-    if (scanDetail.remarks === "No remarks" || scanDetail.remarks === null) return "GREEN";
-    
-    return "N/A";
+    return getAccessStatus(scanDetail).code;
   };
 
   return (

@@ -9,6 +9,7 @@ import useUserToken from "@/hooks/useUserToken";
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { Device } from "../users/EmployeeForm";
+import { getAccessStatus } from "@/lib/access-status";
 
 export default function TurnstileGrid({
   scanDetails = [],
@@ -109,31 +110,12 @@ export default function TurnstileGrid({
     updatedScanDetails.map((scanDetail) => [scanDetail.device.id, scanDetail])
   );
 
-  const checkExpiry = (expiryDate: string | undefined) => {
-    if (expiryDate) {
-      const expiry = new Date(expiryDate);
-      const today = new Date();
-      return today > expiry;
-    }
-    return false;
-  };
-
   const getBorderColorClass = (scanDetail?: ScanDetailStatus): string => {
     if (!scanDetail) return "border-2";
-
-    const isExpired = checkExpiry(scanDetail.expiryDate);
-    const isDisabled = scanDetail.disabled === "true";
-    const hasRemarks =
-      scanDetail.remarks !== "No remarks" && scanDetail.remarks !== null;
-
-    // Hardcoded border classes
-    if (isExpired || isDisabled) return "border-8 border-red-500";
-    if (!isExpired && scanDetail.disabled === "false" && hasRemarks)
-      return "border-8 border-yellow-500";
-    if (scanDetail.remarks === "No remarks" || scanDetail.remarks === null)
-      return "border-8 border-green-500";
-
-    return "border-2";
+    const status = getAccessStatus(scanDetail);
+    if (status.code === "RED") return "border-8 border-red-500";
+    if (status.code === "YELLOW") return "border-8 border-yellow-500";
+    return "border-8 border-green-500";
   };
 
   // Get the optimal width for the current number of devices
@@ -222,22 +204,24 @@ export default function TurnstileGrid({
                   </div>
                 )}
               </div>
-              <div className="space-y-2">
-                <Label htmlFor={`remarks-${deviceId}`}>Remarks</Label>
-                <div
-                  id={`remarks-${deviceId}`}
-                  className="p-2 rounded-md shadow-sm text-muted-foreground bg-gray-100"
-                  style={{
-                    minHeight:
-                      deviceIds.length === 1 || deviceIds.length === 2
-                        ? "8rem"
-                        : "4rem",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {scanDetail?.remarks || undefined}
+              {(!scanDetail || getAccessStatus(scanDetail).showRemarks) && (
+                <div className="space-y-2">
+                  <Label htmlFor={`remarks-${deviceId}`}>Remarks</Label>
+                  <div
+                    id={`remarks-${deviceId}`}
+                    className="p-2 rounded-md shadow-sm text-muted-foreground bg-gray-100"
+                    style={{
+                      minHeight:
+                        deviceIds.length === 1 || deviceIds.length === 2
+                          ? "8rem"
+                          : "4rem",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {scanDetail?.remarks || undefined}
+                  </div>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         );

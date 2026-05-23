@@ -22,7 +22,7 @@ import {
   UserProps,
 } from "@/lib/types";
 import useUserToken from "@/hooks/useUserToken";
-import { checkExpiry } from "@/lib/checkExpiry";
+import { getAccessStatus, toLegacyStatus } from "@/lib/access-status";
 
 export default function TurnstileDashboard() {
   const { token } = useUserToken();
@@ -412,20 +412,7 @@ export default function TurnstileDashboard() {
   }, [devicesData]);
 
   const getEntryStatus = (scan: ScanProps): string => {
-    const isDisabled = scan.disabled === "true";
-    const isExpired = checkExpiry(scan.expiryDate);
-    const hasRemarks = scan.remarks !== "No remarks";
-    const isApb = scan.eventTypeId?.includes("APB");
-
-    if (isDisabled || isExpired || isApb) {
-      return "RED;cannot enter with or without remarks";
-    }
-
-    if (hasRemarks) {
-      return "YELLOW;can enter with remarks";
-    }
-
-    return "GREEN;can enter without remarks";
+    return toLegacyStatus(getAccessStatus(scan));
   };
 
   useEffect(() => {

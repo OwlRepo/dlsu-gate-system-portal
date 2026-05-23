@@ -39,10 +39,6 @@ const ReportsTable: React.FC<ReportsTableProps> = ({
   const startIndex = (currentPage - 1) * limit;
   const endIndex = Math.min(startIndex + data.length, total);
 
-  const getStatusColor = (status: string) => {
-    return status.split(";")[0] || "N/A";
-  };
-
   // Add validation for current page
   useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) {
@@ -83,12 +79,9 @@ const ReportsTable: React.FC<ReportsTableProps> = ({
                       {column.accessor === "STATUS" ? (
                         <div
                           className={`h-2 w-2 rounded-full ${
-                            getStatusColor(row[column.accessor] as string) ===
-                            "GREEN"
+                            row.STATUS_CODE === "GREEN"
                               ? "bg-[#00C853]"
-                              : getStatusColor(
-                                  row[column.accessor] as string
-                                ) === "YELLOW"
+                              : row.STATUS_CODE === "YELLOW"
                               ? "bg-[#FFB300]"
                               : "bg-[#F44336]"
                           }`}

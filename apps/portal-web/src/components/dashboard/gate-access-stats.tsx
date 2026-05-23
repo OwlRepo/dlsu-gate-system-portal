@@ -1,6 +1,7 @@
 "use client";
 import { ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import { isMtlMode } from "@/lib/campus-mode";
 
 interface GateAccessStatProps {
   label: string;
@@ -89,6 +90,7 @@ const GateAccessStat: React.FC<GateAccessStatProps> = ({
 
 export function GateAccessStats({ data }: AccessProps) {
   const [isHydrated, setIsHydrated] = useState(false);
+  const mtlMode = isMtlMode();
   // const { setStats, allowed, allowedWithRemarks, notAllowed } = useGateStatsStore();
 
   // Handle hydration
@@ -139,14 +141,22 @@ export function GateAccessStats({ data }: AccessProps) {
     <div className="space-y-4 w-full">
       <GateAccessStat
         label="Allowed"
-        percentage={isHydrated ? data?.allowed : 0}
+        percentage={
+          isHydrated
+            ? mtlMode
+              ? (data?.allowed ?? 0) + (data?.allowedWithRemarks ?? 0)
+              : data?.allowed
+            : 0
+        }
         color="bg-[#00C853]"
       />
-      <GateAccessStat
-        label="Allowed with Remarks"
-        percentage={isHydrated ? data?.allowedWithRemarks : 0}
-        color="bg-[#FFB300]"
-      />
+      {!mtlMode && (
+        <GateAccessStat
+          label="Allowed with Remarks"
+          percentage={isHydrated ? data?.allowedWithRemarks : 0}
+          color="bg-[#FFB300]"
+        />
+      )}
       <GateAccessStat
         label="Not Allowed"
         percentage={isHydrated ? data?.notAllowed : 0}

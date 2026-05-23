@@ -6,7 +6,7 @@ import { FileX, Flame } from "lucide-react";
 import { ScanProps } from "@/lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import Image from "next/image";
-import { checkExpiry } from "@/lib/checkExpiry";
+import { getAccessStatus } from "@/lib/access-status";
 
 interface LiveData {
   data: ScanProps[];
@@ -79,27 +79,11 @@ export function LiveDataTable({ data, handleClear }: LiveData) {
   };
 
   const getLiveStatusColor = (scanDetail?: LiveDataRow): string => {
-
     if (!scanDetail) return "";
-
-    const isExpired = checkExpiry(scanDetail.STATUS.expiryDate);
-    const isDisabled = scanDetail.STATUS.disabled === "true";
-    const isApb = scanDetail.event && scanDetail.event.includes("APB") ;
-
-    const hasRemarks =
-      scanDetail.STATUS.remarks !== "No remarks" &&
-      scanDetail.STATUS.remarks !== null;
-
-    if (isExpired || isDisabled || isApb) return "bg-red-500";
-    if (!isExpired && scanDetail.STATUS.disabled === "false" && hasRemarks)
-      return "bg-yellow-500";
-    if (
-      scanDetail.STATUS.remarks === "No remarks" ||
-      scanDetail.STATUS.remarks === null
-    )
-      return "bg-green-500";
-
-    return "";
+    const status = getAccessStatus(scanDetail.STATUS);
+    if (status.code === "RED") return "bg-red-500";
+    if (status.code === "YELLOW") return "bg-yellow-500";
+    return "bg-green-500";
   };
 
   console.log("Live Data", liveData);
@@ -163,11 +147,7 @@ export function LiveDataTable({ data, handleClear }: LiveData) {
                       />
                     </div>
                     <div className="mt-2 text-center text-xs font-medium text-white">
-                      {color === "bg-green-500"
-                        ? "Allowed"
-                        : color === "bg-yellow-500"
-                        ? "Allowed with remarks"
-                        : "Not Allowed"}
+                      {getAccessStatus(processedData.STATUS).label}
                     </div>
                   </div>
 
@@ -187,15 +167,17 @@ export function LiveDataTable({ data, handleClear }: LiveData) {
                           </p>
                         )}
                       </div>
-                      <div className="space-y-2">
-                        <p className="text-sm">Remarks: </p>
-                        <div
-                          className="p-2 rounded-md text-muted-foreground bg-gray-100"
-                          style={{ minHeight: "5rem", whiteSpace: "pre-wrap" }}
-                        >
-                          {selectedData.STATUS?.remarks || undefined}
+                      {getAccessStatus(selectedData.STATUS).showRemarks && (
+                        <div className="space-y-2">
+                          <p className="text-sm">Remarks: </p>
+                          <div
+                            className="p-2 rounded-md text-muted-foreground bg-gray-100"
+                            style={{ minHeight: "5rem", whiteSpace: "pre-wrap" }}
+                          >
+                            {selectedData.STATUS?.remarks || undefined}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>

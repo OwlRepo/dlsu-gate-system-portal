@@ -13,9 +13,12 @@ import { useToast } from "@/hooks/use-toast";
 import CustomExport from "../custom/CustomExport";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import { GateUsageChart } from "./GateUsageChart";
+import { getCampusMode } from "@/lib/campus-mode";
 
 export interface ReportsHeader {
   STATUS: string;
+  STATUS_CODE: "GREEN" | "YELLOW" | "RED";
+  SHOW_REMARKS: boolean;
   ID: string;
   NAME: string;
   GATE: string;
@@ -314,9 +317,26 @@ const ReportsPageContainer = () => {
       return "N/A";
     }
   };
+  const campusMode = getCampusMode();
 
   const data = reportsList.map((row) => ({
-    STATUS: row.status ? row.status : "N/A",
+    STATUS_CODE: (row.status?.startsWith("RED")
+      ? "RED"
+      : row.status?.startsWith("YELLOW")
+      ? "YELLOW"
+      : "GREEN") as ReportsHeader["STATUS_CODE"],
+    STATUS: row.status?.startsWith("RED")
+      ? "Not Allowed"
+      : campusMode === "MTL"
+      ? "Allowed"
+      : row.status?.startsWith("YELLOW")
+      ? "Allowed with remarks"
+      : "Allowed",
+    SHOW_REMARKS:
+      campusMode !== "MTL" &&
+      !!row.remarks &&
+      row.remarks !== "No remarks" &&
+      row.remarks !== "null",
     ID: row.user_id ? row.user_id : "N/A",
     NAME: row.name ? row.name : "N/A",
     GATE: row.gate ? row.gate : row.device ? row.device : "N/A",
@@ -326,7 +346,8 @@ const ReportsPageContainer = () => {
       ? (row.type === "1" ? "IN" : "OUT")
       : "N/A",
     DATETIME: formatDateTime(row.datetime),
-    REMARKS: row.remarks ? row.remarks : "N/A",
+    REMARKS:
+      campusMode === "MTL" ? "N/A" : row.remarks ? row.remarks : "N/A",
   }));
   const gateChartData =
     gateAnalytics.length > 0 ? gateAnalytics : MOCK_GATE_ANALYTICS;
@@ -424,15 +445,17 @@ const ReportsPageContainer = () => {
                           </p>
                         )}
                       </div>
-                      <div className="space-y-2">
-                        <p className="text-sm">Remarks: </p>
-                        <div
-                          className="p-2 rounded-md text-muted-foreground bg-gray-100"
-                          style={{ minHeight: "5rem", whiteSpace: "pre-wrap" }}
-                        >
-                          {selectedData.REMARKS || undefined}
+                      {selectedData.SHOW_REMARKS && (
+                        <div className="space-y-2">
+                          <p className="text-sm">Remarks: </p>
+                          <div
+                            className="p-2 rounded-md text-muted-foreground bg-gray-100"
+                            style={{ minHeight: "5rem", whiteSpace: "pre-wrap" }}
+                          >
+                            {selectedData.REMARKS || undefined}
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>

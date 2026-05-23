@@ -1,21 +1,8 @@
-import { checkExpiry } from "@/lib/checkExpiry";
+import { getAccessStatus, toLegacyStatus } from "@/lib/access-status";
 import { ReportData, ScanProps } from "@/lib/types";
 
 export const getEntryStatus = (scan: ScanProps): string => {
-  const isDisabled = scan.disabled === "true";
-  const isExpired = checkExpiry(scan.expiryDate);
-  const hasRemarks = scan.remarks !== "No remarks";
-  const isApb = scan.eventTypeId?.includes("APB");
-
-  if (isDisabled || isExpired || isApb) {
-    return "RED;cannot enter with or without remarks";
-  }
-
-  if (hasRemarks) {
-    return "YELLOW;can enter with remarks";
-  }
-
-  return "GREEN;can enter without remarks";
+  return toLegacyStatus(getAccessStatus(scan));
 };
 
 export const mapReportType = (scan: ScanProps): string => {

@@ -13,6 +13,7 @@ import {
 } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { useState } from "react";
+import { getAccessStatus } from "@/lib/access-status";
 
 interface LogEntry {
   queue: ScanProps[];
@@ -83,31 +84,12 @@ export default function EntriesLog({ queue }: LogEntry) {
     return entry;
   });
 
-  const checkExpiry = (expiryDate: string | undefined) => {
-    if (expiryDate) {
-      const expiry = new Date(expiryDate);
-      const today = new Date();
-      return today > expiry;
-    }
-    return false;
-  };
-
   const getBorderColorClass = (scanDetail?: ScanDetailStatus): string => {
     if (!scanDetail) return "border-2";
-
-    const isExpired = checkExpiry(scanDetail.expiryDate);
-    const isDisabled = scanDetail.disabled === "true";
-    const hasRemarks =
-      scanDetail.remarks !== "No remarks" && scanDetail.remarks !== null;
-
-    // Hardcoded border classes
-    if (isExpired || isDisabled) return "border-8 border-red-500";
-    if (!isExpired && scanDetail.disabled === "false" && hasRemarks)
-      return "border-8 border-yellow-500";
-    if (scanDetail.remarks === "No remarks" || scanDetail.remarks === null)
-      return "border-8 border-green-500";
-
-    return "border-2";
+    const status = getAccessStatus(scanDetail);
+    if (status.code === "RED") return "border-8 border-red-500";
+    if (status.code === "YELLOW") return "border-8 border-yellow-500";
+    return "border-8 border-green-500";
   };
 
   const handleEntryClick = (entry: ScanProps) => {
@@ -158,11 +140,13 @@ export default function EntriesLog({ queue }: LogEntry) {
                       </p>
                     </div>
                   </div>
-                  <div className="mt-3 bg-gray-100 p-3 rounded-lg">
-                    <p className="text-sm text-gray-500">
-                      Remarks: {entry.remarks || "No remarks"}
-                    </p>
-                  </div>
+                  {getAccessStatus(entry).showRemarks && (
+                    <div className="mt-3 bg-gray-100 p-3 rounded-lg">
+                      <p className="text-sm text-gray-500">
+                        Remarks: {entry.remarks || "No remarks"}
+                      </p>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -234,12 +218,14 @@ export default function EntriesLog({ queue }: LogEntry) {
               </div>
 
               {/* Remarks section */}
-              <div className="bg-gray-50 p-3 rounded-lg">
-                <p className="text-sm font-medium text-gray-700">Remarks</p>
-                <p className="text-sm text-gray-600 mt-1">
-                  {selectedEntry.remarks || "No remarks"}
-                </p>
-              </div>
+              {getAccessStatus(selectedEntry).showRemarks && (
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-sm font-medium text-gray-700">Remarks</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {selectedEntry.remarks || "No remarks"}
+                  </p>
+                </div>
+              )}
 
               <DialogClose asChild>
                 <Button className="w-full mt-2" variant="outline">

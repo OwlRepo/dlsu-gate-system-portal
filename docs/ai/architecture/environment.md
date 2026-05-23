@@ -37,3 +37,13 @@ Source of truth: root `.env`.
 | `NEXT_PUBLIC_BIOSTAR_LOGIN_ID` `NEXT_PUBLIC_BIOSTAR_PASSWORD` | public client credentials (current behavior) | Yes (current behavior) | login payloads | login payloads | user/settings/dashboard forms |
 
 Never print real secret values in docs or logs.
+
+## Campus Mode Pairing (Required for status behavior)
+- Dasma deployment:
+  - `SOURCE_DB_SCHEMA_ENV=dasma`
+  - `NEXT_PUBLIC_CAMPUS=DASMA`
+- Main/Taft/Laguna deployment:
+  - `SOURCE_DB_SCHEMA_ENV` set to any non-`dasma` value
+  - `NEXT_PUBLIC_CAMPUS=MAIN` or `TAFT` or `LAGUNA`
+
+Frontend code falls back to Dasma-compatible behavior when `NEXT_PUBLIC_CAMPUS` is missing or invalid and logs a non-production warning.
