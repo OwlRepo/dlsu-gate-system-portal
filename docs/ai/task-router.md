@@ -25,10 +25,10 @@ Claude classifies raw task input and routes to appropriate template.
 | Input Intent | Internal Workflow | Template | Output |
 | --- | --- | --- | --- |
 | Bug, error, regression, crash, failing test, broken behavior, unexpected behavior, production incident, QA failure, support complaint | Bug RCA | `docs/ai/prompts/bugfix-rca.md` | RCA first. No plan until approved. |
-| Approved RCA, request for fix plan, request to generate implementation plan after RCA | Bug Plan | `docs/ai/prompts/bugfix-plan.md` | Implementation Plan + `.ai-scratchpad.md`. |
-| New capability, enhancement, new workflow, new UI behavior, new API behavior, product behavior change | Feature Plan | `docs/ai/prompts/feature-plan.md` | Feature Discovery + Implementation Plan + `.ai-scratchpad.md`. |
-| Cleanup, rename, restructure, internal code quality change, no intended behavior change | Refactor Plan | `docs/ai/prompts/refactor-plan.md` | Risk-scoped plan + `.ai-scratchpad.md`. |
-| Question, explanation, code review, architecture review, discovery only | Read-only | None | Evidence-backed findings only. No scratchpad unless user asks. |
+| Approved RCA, request for fix plan, request to generate implementation plan after RCA | Bug Plan | `docs/ai/prompts/bugfix-plan.md` | Implementation Plan Summary, then Claude implements directly. |
+| New capability, enhancement, new workflow, new UI behavior, new API behavior, product behavior change | Feature Plan | `docs/ai/prompts/feature-plan.md` | Feature Discovery + Implementation Plan Summary, then Claude implements directly. |
+| Cleanup, rename, restructure, internal code quality change, no intended behavior change | Refactor Plan | `docs/ai/prompts/refactor-plan.md` | Risk-scoped Implementation Plan Summary, then Claude implements directly. |
+| Question, explanation, code review, architecture review, discovery only | Read-only | None | Evidence-backed findings only. No implementation plan unless user asks. |
 
 ## Ambiguity Rules
 

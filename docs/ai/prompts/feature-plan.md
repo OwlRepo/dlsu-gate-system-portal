@@ -1,5 +1,7 @@
 # Feature Plan Template
 
+Per CLAUDE.md's Plan Format Contract, open any plan produced from this template with a TL;DR (plain-English, analogy, optional small visualization) before the formal sections below.
+
 Use this template for new features, enhancements, new workflows, or product behavior changes.
 
 Do not use RCA.
@@ -184,9 +186,11 @@ Include:
 - Risk mitigations
 - Emergency procedures
 
-### 13. Codex Scratchpad Output
+### 13. Implementation Plan Summary
 
-Generate `.ai-scratchpad.md` with:
+Claude uses this summary to drive its own direct implementation, one step at a time, following the Testing Requirement (TDD-first) in CLAUDE.md. This is not a handoff artifact for another agent.
+
+Include:
 
 - Task Summary
 - Task Type: Feature
@@ -205,7 +209,7 @@ Generate `.ai-scratchpad.md` with:
 - Rollback / Risk Notes: [from section 12]
 - Done Criteria: [feature is working end-to-end]
 
-Status: IMPLEMENTATION_READY (only after approval)
+Claude proceeds to implement this plan directly, one step at a time, after approval below.
 
 ## Feature Discovery Detail
 
@@ -266,8 +270,8 @@ Plan should be reviewed for:
 - No unrelated cleanup included
 - Verification strategy is realistic
 
-After approval, write scratchpad with Status: IMPLEMENTATION_READY.
+After approval, begin implementation.
 
 If Deep task, require explicit approval: `Deep implementation approved: Yes`
 
-Do not write scratchpad until approval is confirmed.
+Do not begin implementation until approval is confirmed.

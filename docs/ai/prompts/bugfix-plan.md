@@ -1,5 +1,7 @@
 # Bug Plan Template
 
+Per CLAUDE.md's Plan Format Contract, open any plan produced from this template with a TL;DR (plain-English, analogy, optional small visualization) before the formal sections below.
+
 Use this template after RCA approval to plan bugfix implementation.
 
 RCA must be approved before generating plan.
@@ -83,9 +85,11 @@ Include:
 - Emergency revert procedure
 - Risk mitigations
 
-### 8. Codex Scratchpad Output
+### 8. Implementation Plan Summary
 
-Generate `.ai-scratchpad.md` with:
+Claude uses this summary to drive its own direct implementation, one step at a time, following the Testing Requirement (TDD-first) in CLAUDE.md. This is not a handoff artifact for another agent.
+
+Include:
 
 - Task Summary
 - Task Type: Bugfix
@@ -104,7 +108,7 @@ Generate `.ai-scratchpad.md` with:
 - Rollback / Risk Notes: [from section 7]
 - Done Criteria: [how to confirm fix works]
 
-Status: IMPLEMENTATION_READY (only after approval)
+Claude proceeds to implement this plan directly, one step at a time, after approval below.
 
 ## Plan Step Format
 
@@ -160,8 +164,8 @@ Plan should be reviewed for:
 - Verification strategy is realistic
 - Rollback plan is workable
 
-After approval, write scratchpad with Status: IMPLEMENTATION_READY.
+After approval, begin implementation.
 
 If Deep task, require explicit approval: `Deep implementation approved: Yes`
 
-Do not write scratchpad until approval is confirmed.
+Do not begin implementation until approval is confirmed.

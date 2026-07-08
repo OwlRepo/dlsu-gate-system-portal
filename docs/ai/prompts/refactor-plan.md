@@ -1,5 +1,7 @@
 # Refactor Plan Template
 
+Per CLAUDE.md's Plan Format Contract, open any plan produced from this template with a TL;DR (plain-English, analogy, optional small visualization) before the formal sections below.
+
 Use this template for refactors, cleanup, renaming, restructuring, or internal code quality changes without intended behavior changes.
 
 Preserve behavior unless user explicitly approved behavior change.
@@ -161,9 +163,11 @@ Include:
 - Risk mitigations
 - How to verify refactor didn't break anything
 
-### 8. Codex Scratchpad Output
+### 8. Implementation Plan Summary
 
-Generate `.ai-scratchpad.md` with:
+Claude uses this summary to drive its own direct implementation, one step at a time, following the Testing Requirement (TDD-first) in CLAUDE.md. This is not a handoff artifact for another agent.
+
+Include:
 
 - Task Summary
 - Task Type: Refactor
@@ -182,7 +186,7 @@ Generate `.ai-scratchpad.md` with:
 - Rollback / Risk Notes: [from section 7]
 - Done Criteria: [refactor complete, all tests pass, behavior unchanged]
 
-Status: IMPLEMENTATION_READY (only after approval)
+Claude proceeds to implement this plan directly, one step at a time, after approval below.
 
 ## Constraints
 
@@ -239,10 +243,10 @@ Plan should be reviewed for:
 - Breaking changes explicitly listed and approved (if any)
 - Verification strategy covers behavior preservation
 
-After approval, write scratchpad with Status: IMPLEMENTATION_READY.
+After approval, begin implementation.
 
 If Deep task, require explicit approval: `Deep implementation approved: Yes`
 
 If breaking changes, require: `Breaking change approved: Yes`
 
-Do not write scratchpad until approval is confirmed.
+Do not begin implementation until approval is confirmed.

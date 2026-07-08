@@ -1,5 +1,7 @@
 # Bug RCA Template
 
+Per CLAUDE.md's Plan Format Contract, open any plan produced from this template with a TL;DR (plain-English, analogy, optional small visualization) before the formal sections below.
+
 Use this template for bug reports, errors, regressions, crashes, failing tests, or unexpected behavior.
 
 Do not generate implementation steps.
