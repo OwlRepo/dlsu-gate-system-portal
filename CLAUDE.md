@@ -26,3 +26,17 @@ Router only. The operating layer lives in `.ai-engineering/` — this file point
 ## If Codex-era files reappear
 
 This repo removed its Codex/ChatGPT-era AI layer on 2026-07-08 (`AGENTS.md`, `.codex/`, `CLAUDE_CODEX.md`, `.ai-scratchpad.md`, `.claude/settings.example.json`). If any of these resurface, flag it and ask before assuming it was intentional — see `.ai-engineering/MANIFEST.md`'s Codex-leftover guard.
+
+## Agent skills
+
+### Issue tracker
+
+Linear — issues come from raised concerns or meeting follow-ups; agents treat them as Romeo's todos and always run planning triage first. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context — `apps/backend` and `apps/portal-web` are separate domains, each with its own `CONTEXT.md`. See `docs/agents/domain.md`.
