@@ -8,10 +8,8 @@ import {
 import { Server, Socket } from 'socket.io';
 import { ReportsService } from './reports.service';
 import { OnModuleInit, Logger } from '@nestjs/common';
-import { Report } from './entities/report.entity';
 import { Interval } from '@nestjs/schedule';
 import { startOfDay, endOfDay } from 'date-fns';
-import { Between } from 'typeorm';
 import dayjs from '../config/dayjs.config';
 
 interface GateStats {
@@ -223,72 +221,47 @@ export class ReportsGateway
     const todayManila = dayjs().tz('Asia/Manila').toDate();
     const startOfToday = startOfDay(todayManila);
     const endOfToday = endOfDay(todayManila);
-    let todayReports: Report[] = [];
+
+    let aggregate: {
+      entry: number;
+      exit: number;
+      green: number;
+      yellow: number;
+      red: number;
+      total: number;
+    };
 
     try {
-      todayReports = await this.reportsService.find({
-        where: {
-          datetime: Between(startOfToday, endOfToday),
-        },
-        order: {
-          datetime: 'DESC',
-        },
-      });
+      // Six integers via a SQL aggregate instead of fetching every row for
+      // today and counting in JS — same numbers, no full-table hydration.
+      aggregate = await this.reportsService.getTodayStatsAggregate(
+        startOfToday,
+        endOfToday,
+      );
     } catch (error) {
       this.logger.error(`Failed to fetch reports: ${error.message}`);
       throw new Error(`Database query failed: ${error.message}`);
     }
 
     const stats: GateStats = {
-      onPremise: 0,
-      entry: 0,
-      exit: 0,
+      onPremise: aggregate.entry - aggregate.exit,
+      entry: aggregate.entry,
+      exit: aggregate.exit,
       gateAccessStats: {
-        allowed: 0,
-        allowedWithRemarks: 0,
-        notAllowed: 0,
+        allowed:
+          aggregate.entry === 0
+            ? 0
+            : Math.round((aggregate.green / aggregate.total) * 100),
+        allowedWithRemarks:
+          aggregate.entry === 0
+            ? 0
+            : Math.round((aggregate.yellow / aggregate.total) * 100),
+        notAllowed:
+          aggregate.entry === 0
+            ? 0
+            : Math.round((aggregate.red / aggregate.total) * 100),
       },
       lastUpdated: new Date(),
-    };
-
-    todayReports.forEach((report: Report) => {
-      // Count entries and exits
-      if (report.type === '1') {
-        stats.entry++;
-      } else if (report.type === '2') {
-        stats.exit++;
-      }
-    });
-
-    // Calculate on-premise (entries minus exits)
-    stats.onPremise = stats.entry - stats.exit;
-
-    // Count access types
-    const accessCounts = {
-      green: 0,
-      yellow: 0,
-      red: 0,
-    };
-
-    todayReports.forEach((report: Report) => {
-      if (report.status?.startsWith('GREEN')) accessCounts.green++;
-      else if (report.status?.startsWith('YELLOW')) accessCounts.yellow++;
-      else if (report.status?.startsWith('RED')) accessCounts.red++;
-    });
-
-    stats.gateAccessStats = {
-      allowed:
-        stats.entry === 0
-          ? 0
-          : Math.round((accessCounts.green / todayReports.length) * 100),
-      allowedWithRemarks:
-        stats.entry === 0
-          ? 0
-          : Math.round((accessCounts.yellow / todayReports.length) * 100),
-      notAllowed:
-        stats.entry === 0
-          ? 0
-          : Math.round((accessCounts.red / todayReports.length) * 100),
     };
 
     return stats;

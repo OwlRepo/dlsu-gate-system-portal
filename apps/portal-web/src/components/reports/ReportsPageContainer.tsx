@@ -39,6 +39,11 @@ const MOCK_GATE_ANALYTICS: GateAnalyticsRow[] = [
   { gate: "Gate 4 - West Entrance", count: 16 },
 ];
 
+// Gate Usage Trends chart — disabled: this feature phase hasn't started/isn't
+// scoped yet. Flip to true when that work begins; the fetch + render are both
+// gated on this single flag so re-enabling is a one-line change.
+const GATE_USAGE_CHART_ENABLED = false;
+
 const ReportsPageContainer = () => {
   const { toast } = useToast();
 
@@ -235,6 +240,9 @@ const ReportsPageContainer = () => {
 
   const fetchGateAnalytics = useCallback(
     async (filters?: FilterItem[]) => {
+      if (!GATE_USAGE_CHART_ENABLED) {
+        return;
+      }
       try {
         setGateAnalyticsLoading(true);
         const user = Cookies.get("user");
@@ -397,9 +405,11 @@ const ReportsPageContainer = () => {
           />
         </div>
       </div>
-      <div className="mb-6">
-        <GateUsageChart data={gateChartData} loading={gateAnalyticsLoading} />
-      </div>
+      {GATE_USAGE_CHART_ENABLED && (
+        <div className="mb-6">
+          <GateUsageChart data={gateChartData} loading={gateAnalyticsLoading} />
+        </div>
+      )}
       <ReportsTable
         columns={headers}
         data={data}

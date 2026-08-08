@@ -15,12 +15,12 @@ import {
   ScanProps,
   UserProps,
 } from "@/lib/types";
-import debounce from "lodash/debounce";
 import useUserToken from "@/hooks/useUserToken";
 import { useReportsSocket } from "@/hooks/useReportSocket";
 import { mapScanToReportData } from "@/lib/report-mapper";
 import { isMockMode } from "@/lib/mock-mode";
 import { mockDashboardScans } from "@/mocks/data/dashboard";
+import { normalizeDeviceId, normalizeUserId } from "@/lib/biostar-event";
 import {
   Dialog,
   DialogContent,
@@ -37,41 +37,31 @@ export function Dashboard() {
   const [tableQueue, setTableQueue] = useState<ScanProps[]>([]);
   const processedEventsRef = useRef<Set<string>>(new Set());
   const postedReportsRef = useRef<Set<string>>(new Set());
+  const pendingReportsRef = useRef<
+    Map<string, { reportEventKey: string; reportData: ReportData; attempts: number }>
+  >(new Map());
   // const [devicesData, setDevicesData] = useState<{ [key: string]: ScanProps }>(
   //   {}
   // );
   const buildEventKey = useCallback(
-    (userId: string, deviceId: string, datetime: string, eventTypeName?: string) =>
-      `${userId}-${deviceId}-${datetime}-${eventTypeName ?? "UNKNOWN"}`,
+    (
+      userId: string,
+      deviceId: string,
+      datetime: string,
+      eventTypeName?: string,
+      tnaKey?: string
+    ) =>
+      `${userId}-${deviceId}-${datetime}-${eventTypeName ?? "UNKNOWN"}-${tnaKey ?? "UNKNOWN"}`,
     []
   );
-  const normalizeDeviceId = useCallback((rawDeviceId: unknown): string => {
-    if (typeof rawDeviceId === "string" || typeof rawDeviceId === "number") {
-      return String(rawDeviceId).trim();
-    }
-
-    if (rawDeviceId && typeof rawDeviceId === "object") {
-      const deviceObject = rawDeviceId as { id?: unknown; device_id?: unknown };
-      const nestedId = deviceObject.device_id ?? deviceObject.id;
-      if (typeof nestedId === "string" || typeof nestedId === "number") {
-        return String(nestedId).trim();
-      }
-    }
-
-    return "";
-  }, []);
-
-  const normalizeUserId = useCallback((rawUserId: unknown): string => {
-    if (typeof rawUserId === "string" || typeof rawUserId === "number") {
-      return String(rawUserId).trim();
-    }
-    return "";
-  }, []);
-
+  // Returns whether the report was actually written, so the caller can decide
+  // between marking it posted (postedReportsRef) or queuing it for retry
+  // (pendingReportsRef). A missing token is treated the same as a failed POST:
+  // both fall through to the pending-queue path instead of being dropped.
   const sendReport = useCallback(
-    async (reportData: ReportData) => {
+    async (reportData: ReportData): Promise<boolean> => {
       if (!token) {
-        return;
+        return false;
       }
 
       try {
@@ -82,8 +72,10 @@ export function Dashboard() {
             Authorization: `${token}`,
           },
         });
+        return true;
       } catch (error) {
         console.error("Error sending report:", error);
+        return false;
       }
     },
     [token]
@@ -199,6 +191,11 @@ export function Dashboard() {
       return () => clearInterval(interval);
     }
 
+    // Declared in the outer effect scope (not inside fetchSessionId) so the
+    // cleanup function returned by this effect can always reach the socket
+    // that was actually created, and close it on unmount.
+    let ws: WebSocket | undefined;
+
     const fetchSessionId = async () => {
       try {
         const response = await axios.post(
@@ -218,12 +215,12 @@ export function Dashboard() {
 
         if (response) {
           // setBsSessionId(response.data.bsSessionId);
-          const ws = new WebSocket(BIOSTAR2_WS_URI);
+          ws = new WebSocket(BIOSTAR2_WS_URI);
 
           ws.onopen = () => {
             console.log("WebSocket connection established.");
             // Send the session ID to the WebSocket server
-            ws.send(`bs-session-id=${response.data.bsSessionId}`);
+            ws?.send(`bs-session-id=${response.data.bsSessionId}`);
 
             // Optionally call the event API after WebSocket connection is established
             setTimeout(() => {
@@ -231,9 +228,23 @@ export function Dashboard() {
             }, 1000);
           };
           ws.onmessage = (event) => {
-            const eventData = JSON.parse(event.data);
+            let eventData: { Event?: Record<string, unknown> };
+            try {
+              eventData = JSON.parse(event.data);
+            } catch (error) {
+              console.error("Failed to parse WebSocket message:", error);
+              return;
+            }
+
             if (eventData.Event) {
-              const { user_id, device_id, datetime, tna_key, event_type_id } = eventData.Event;
+              const { user_id, device_id, datetime, tna_key, event_type_id } =
+                eventData.Event as {
+                  user_id: unknown;
+                  device_id: unknown;
+                  datetime: string;
+                  tna_key: string;
+                  event_type_id: EventProps;
+                };
               const normalizedUserId = normalizeUserId(user_id);
               const normalizedDeviceId = normalizeDeviceId(device_id);
 
@@ -241,19 +252,25 @@ export function Dashboard() {
                 return;
               }
 
-              // Ref-backed guard prevents stale closure dedupe bugs.
+              // Ref-backed guard prevents stale closure dedupe bugs. The key
+              // includes tna_key so an IN and OUT event for the same
+              // user/device/datetime don't collide and drop one another.
               const eventKey = buildEventKey(
                 normalizedUserId,
                 normalizedDeviceId,
                 datetime,
-                event_type_id?.name
+                event_type_id?.name,
+                tna_key
               );
               if (processedEventsRef.current.has(eventKey)) {
                 return;
               }
               processedEventsRef.current.add(eventKey);
 
-              debouncedFetchUserData(
+              // Called directly (no debounce): the dedupe guard above already
+              // prevents true duplicate processing regardless of timing, so a
+              // debounce here only dropped distinct, fast-arriving events.
+              fetchUserData(
                 response.data.bsSessionId,
                 {
                   user_id: normalizedUserId,
@@ -278,13 +295,6 @@ export function Dashboard() {
           ws.onclose = () => {
             console.log("WebSocket connection closed.");
           };
-
-          // Cleanup on component unmount
-          return () => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.close();
-            }
-          };
         } else {
           console.error(
             "Session ID is missing. Cannot establish WebSocket connection."
@@ -300,27 +310,16 @@ export function Dashboard() {
 
     fetchSessionId();
 
+    // Cleanup on component unmount. Returned from the effect itself (not
+    // from the async fetchSessionId, whose return value would be a promise
+    // React never sees) so the socket is actually closed.
+    return () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedFetchUserData = useCallback(
-    debounce(
-      (
-        bsSessionId: string,
-        user: UserProps,
-        device: DeviceProps,
-        tna_key: string,
-        datetime: string,
-        event_type_id: EventProps
-      ) => {
-        fetchUserData(bsSessionId, user, device, tna_key, datetime, event_type_id);
-      },
-      300, // 300ms delay
-      { leading: true, trailing: false } // Only process the first call in the wait period
-    ),
-    []
-  );
 
   const fetchUserData = async (
     bsSessionId: string,
@@ -446,13 +445,26 @@ export function Dashboard() {
         newDeviceData.user.user_id,
         newDeviceData.device.id,
         newDeviceData.datetime,
-        newDeviceData.eventTypeId
+        newDeviceData.eventTypeId,
+        newDeviceData.tnaKey
       );
 
       // Guard report inserts against websocket replay/reconnect duplicates.
       if (!postedReportsRef.current.has(reportEventKey)) {
-        postedReportsRef.current.add(reportEventKey);
-        await sendReport(mapScanToReportData(newDeviceData));
+        const reportData = mapScanToReportData(newDeviceData);
+        // Only mark as "posted" once the write actually succeeds. On
+        // failure (missing token or a rejected POST), queue it for retry
+        // instead of silently dropping it.
+        const success = await sendReport(reportData);
+        if (success) {
+          postedReportsRef.current.add(reportEventKey);
+        } else {
+          pendingReportsRef.current.set(reportEventKey, {
+            reportEventKey,
+            reportData,
+            attempts: 0,
+          });
+        }
       }
     } catch (error) {
       console.error("Error fetching user data:", error);
@@ -508,12 +520,59 @@ export function Dashboard() {
     setIsDialogOpen(false);
   }, []);
 
-  // Clean up the debounced function
+  // Retry queue for reports that failed to send (missing token or a
+  // rejected POST). Runs on a fixed interval, separate from the midnight
+  // check below, and gives up loudly after 5 attempts per report instead of
+  // retrying forever or dropping silently.
   useEffect(() => {
-    return () => {
-      debouncedFetchUserData.cancel();
+    const RETRY_INTERVAL_MS = 5000;
+    const MAX_ATTEMPTS = 5;
+    const BATCH_SIZE = 10;
+    let isRunning = false;
+
+    const runOne = async (
+      key: string,
+      pending: { reportData: ReportData; attempts: number }
+    ) => {
+      const success = await sendReport(pending.reportData);
+      if (success) {
+        postedReportsRef.current.add(key);
+        pendingReportsRef.current.delete(key);
+        return;
+      }
+
+      pending.attempts += 1;
+      if (pending.attempts >= MAX_ATTEMPTS) {
+        console.error(
+          `Gate scan report permanently failed after ${MAX_ATTEMPTS} attempts:`,
+          pending.reportData
+        );
+        pendingReportsRef.current.delete(key);
+      }
     };
-  }, [debouncedFetchUserData]);
+
+    // async setInterval callbacks aren't serialized by the browser, so a
+    // batch that outlives one tick would otherwise overlap the next tick's
+    // batch and could double-POST the same key. isRunning skips a tick
+    // entirely if the previous one hasn't finished yet.
+    const interval = setInterval(async () => {
+      if (isRunning) {
+        return;
+      }
+      isRunning = true;
+      try {
+        const entries = Array.from(pendingReportsRef.current.entries());
+        for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+          const batch = entries.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(([key, pending]) => runOne(key, pending)));
+        }
+      } finally {
+        isRunning = false;
+      }
+    }, RETRY_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [sendReport]);
 
   // Midnight detection and auto-clear
   const lastCheckedDateRef = useRef<string>(

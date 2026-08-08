@@ -8,7 +8,7 @@ import { Student } from '../students/entities/student.entity';
 import { Report } from '../reports/entities/report.entity';
 import { UserDto } from '../users/dto/user.dto';
 
-dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 
 export const AppDataSource = new DataSource({
   type: 'postgres',

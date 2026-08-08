@@ -23,6 +23,52 @@ jest.mock('../config/dayjs.config', () => {
 
 import { ReportsGateway } from './reports.gateway';
 
+type StatsAggregate = {
+  entry: number;
+  exit: number;
+  green: number;
+  yellow: number;
+  red: number;
+  total: number;
+};
+
+const ZERO_AGGREGATE: StatsAggregate = {
+  entry: 0,
+  exit: 0,
+  green: 0,
+  yellow: 0,
+  red: 0,
+  total: 0,
+};
+
+// Mirrors the OLD row-fetch-then-count-in-JS logic byte-for-byte, so feeding
+// its output into the NEW aggregate-based calculateTodayStats() proves the
+// two are mathematically equivalent for identical underlying data — this is
+// the "behavior-preserving" proof required for this optimization. It does
+// NOT prove the raw SQL COUNT(*) FILTER expressions compute these same
+// counts against a real Postgres instance; no live database is available in
+// this environment (see reports.service.spec.ts for the aggregate parsing
+// unit tests, and the completion report for what remains unverified).
+function aggregateFromReports(reports: Report[]): StatsAggregate {
+  let entry = 0;
+  let exit = 0;
+  reports.forEach((report) => {
+    if (report.type === '1') entry++;
+    else if (report.type === '2') exit++;
+  });
+
+  let green = 0;
+  let yellow = 0;
+  let red = 0;
+  reports.forEach((report) => {
+    if (report.status?.startsWith('GREEN')) green++;
+    else if (report.status?.startsWith('YELLOW')) yellow++;
+    else if (report.status?.startsWith('RED')) red++;
+  });
+
+  return { entry, exit, green, yellow, red, total: reports.length };
+}
+
 describe('ReportsGateway', () => {
   let gateway: ReportsGateway;
   let reportsService: ReportsService;
@@ -30,7 +76,7 @@ describe('ReportsGateway', () => {
   let mockLogger: jest.SpyInstance;
 
   const mockReportsService = {
-    find: jest.fn().mockResolvedValue([]),
+    getTodayStatsAggregate: jest.fn().mockResolvedValue(ZERO_AGGREGATE),
   };
 
   const createMockReport = (
@@ -88,7 +134,7 @@ describe('ReportsGateway', () => {
 
     // Reset mocks
     jest.clearAllMocks();
-    mockReportsService.find.mockResolvedValue([]);
+    mockReportsService.getTodayStatsAggregate.mockResolvedValue(ZERO_AGGREGATE);
   });
 
   afterEach(() => {
@@ -143,7 +189,9 @@ describe('ReportsGateway', () => {
       jest
         .spyOn(gateway as any, 'getCurrentDateString')
         .mockReturnValue('2024-03-20');
-      mockReportsService.find.mockResolvedValue([]);
+      mockReportsService.getTodayStatsAggregate.mockResolvedValue(
+        ZERO_AGGREGATE,
+      );
 
       // Set up stats
       gateway['currentStats'] = {
@@ -301,7 +349,9 @@ describe('ReportsGateway', () => {
           'GREEN;allowed',
         ),
       ];
-      mockReportsService.find.mockResolvedValue(newDayReports);
+      mockReportsService.getTodayStatsAggregate.mockResolvedValue(
+        aggregateFromReports(newDayReports),
+      );
 
       // Spy on getCurrentDateString to avoid dayjs issues in test
       const getDateSpy = jest
@@ -313,7 +363,7 @@ describe('ReportsGateway', () => {
       expect(stats.entry).toBe(2);
       expect(stats.exit).toBe(1);
       expect(stats.onPremise).toBe(1);
-      expect(mockReportsService.find).toHaveBeenCalled();
+      expect(mockReportsService.getTodayStatsAggregate).toHaveBeenCalled();
 
       getDateSpy.mockRestore();
     });
@@ -326,8 +376,10 @@ describe('ReportsGateway', () => {
         .mockReturnValue('2024-03-20');
       gateway['connectedClients'] = 2; // Ensure interval runs
 
-      // Mock empty array for new day (no reports yet)
-      mockReportsService.find.mockResolvedValue([]);
+      // Mock empty aggregate for new day (no reports yet)
+      mockReportsService.getTodayStatsAggregate.mockResolvedValue(
+        ZERO_AGGREGATE,
+      );
 
       await gateway['handleInterval']();
 
@@ -338,10 +390,12 @@ describe('ReportsGateway', () => {
       expect(gateway['currentStats'].entry).toBe(0);
       expect(gateway['currentStats'].exit).toBe(0);
 
-      // Verify query was made with correct date range
-      expect(mockReportsService.find).toHaveBeenCalled();
-      const callArgs = mockReportsService.find.mock.calls[0][0];
-      expect(callArgs.where.datetime).toBeDefined();
+      // Verify the aggregate query was made with a start/end Date range
+      expect(mockReportsService.getTodayStatsAggregate).toHaveBeenCalled();
+      const [start, end] =
+        mockReportsService.getTodayStatsAggregate.mock.calls[0];
+      expect(start).toBeInstanceOf(Date);
+      expect(end).toBeInstanceOf(Date);
     });
   });
 
@@ -362,7 +416,9 @@ describe('ReportsGateway', () => {
         createMockReport('1', '1', new Date('2024-03-20T08:00:00+08:00')),
         createMockReport('2', '2', new Date('2024-03-20T09:00:00+08:00')),
       ];
-      mockReportsService.find.mockResolvedValue(mockReports);
+      mockReportsService.getTodayStatsAggregate.mockResolvedValue(
+        aggregateFromReports(mockReports),
+      );
       jest
         .spyOn(gateway as any, 'getCurrentDateString')
         .mockReturnValue('2024-03-20');
@@ -402,12 +458,12 @@ describe('ReportsGateway', () => {
 
     it('should skip processing if no clients connected', async () => {
       gateway['connectedClients'] = 0;
-      mockReportsService.find.mockClear();
+      mockReportsService.getTodayStatsAggregate.mockClear();
 
       await gateway['handleInterval']();
 
       // Should not query database
-      expect(mockReportsService.find).not.toHaveBeenCalled();
+      expect(mockReportsService.getTodayStatsAggregate).not.toHaveBeenCalled();
     });
 
     it('should handle date change when no clients connected', async () => {
@@ -455,7 +511,9 @@ describe('ReportsGateway', () => {
       expect(gateway['currentStatsDate']).toBe('2024-03-21');
 
       // Now simulate database error in calculateTodayStats
-      mockReportsService.find.mockRejectedValue(new Error('Database error'));
+      mockReportsService.getTodayStatsAggregate.mockRejectedValue(
+        new Error('Database error'),
+      );
 
       await expect(gateway['handleInterval']()).resolves.not.toThrow();
       // Stats should remain reset
@@ -490,16 +548,125 @@ describe('ReportsGateway', () => {
       const mockReports = [
         createMockReport('1', '1', new Date('2024-03-20T08:00:00+08:00')),
       ];
-      mockReportsService.find.mockResolvedValue(mockReports);
+      mockReportsService.getTodayStatsAggregate.mockResolvedValue(
+        aggregateFromReports(mockReports),
+      );
 
       const stats = await gateway['calculateTodayStats']();
 
-      expect(mockReportsService.find).toHaveBeenCalled();
-      // Verify the query uses date range
-      const callArgs = mockReportsService.find.mock.calls[0][0];
-      expect(callArgs.where.datetime).toBeDefined();
+      expect(mockReportsService.getTodayStatsAggregate).toHaveBeenCalled();
+      // Verify the aggregate call receives a start/end Date range
+      const [start, end] =
+        mockReportsService.getTodayStatsAggregate.mock.calls[0];
+      expect(start).toBeInstanceOf(Date);
+      expect(end).toBeInstanceOf(Date);
       expect(stats).toBeDefined();
       expect(stats.lastUpdated).toBeInstanceOf(Date);
+    });
+  });
+
+  describe('Aggregate-vs-legacy equivalence (behavior-preserving optimization proof)', () => {
+    // These feed the SAME underlying report set through both the OLD
+    // JS-counting formula (aggregateFromReports, copied verbatim from the
+    // pre-optimization implementation) and the NEW gateway formula (which
+    // now consumes a pre-aggregated {entry,exit,green,yellow,red,total}
+    // instead of a Report[]). Matching output proves the gateway's own
+    // math is unchanged; it does not prove the SQL FILTER clauses compute
+    // the same counts against a real Postgres instance (no live DB in this
+    // environment — see reports.service.spec.ts for the query-shape unit
+    // tests, and the completion report for this residual gap).
+
+    it('happy path: matches the legacy per-row count for a normal mixed day', async () => {
+      const reports = [
+        createMockReport('1', '1', new Date(), 'GREEN;allowed'),
+        createMockReport('2', '1', new Date(), 'YELLOW;remarks'),
+        createMockReport('3', '2', new Date(), 'GREEN;allowed'),
+        createMockReport('4', '2', new Date(), 'RED;denied'),
+      ];
+      mockReportsService.getTodayStatsAggregate.mockResolvedValue(
+        aggregateFromReports(reports),
+      );
+
+      const stats = await gateway['calculateTodayStats']();
+
+      expect(stats.entry).toBe(2);
+      expect(stats.exit).toBe(2);
+      expect(stats.onPremise).toBe(0);
+      expect(stats.gateAccessStats.allowed).toBe(Math.round((2 / 4) * 100));
+      expect(stats.gateAccessStats.allowedWithRemarks).toBe(
+        Math.round((1 / 4) * 100),
+      );
+      expect(stats.gateAccessStats.notAllowed).toBe(Math.round((1 / 4) * 100));
+    });
+
+    it('empty day: all zeros, no division by zero', async () => {
+      mockReportsService.getTodayStatsAggregate.mockResolvedValue(
+        aggregateFromReports([]),
+      );
+
+      const stats = await gateway['calculateTodayStats']();
+
+      expect(stats).toEqual(
+        expect.objectContaining({
+          entry: 0,
+          exit: 0,
+          onPremise: 0,
+          gateAccessStats: {
+            allowed: 0,
+            allowedWithRemarks: 0,
+            notAllowed: 0,
+          },
+        }),
+      );
+    });
+
+    it('malformed/null status values: not counted in any bucket, still counted in total', async () => {
+      const reports = [
+        createMockReport('1', '1', new Date(), 'GREEN;allowed'),
+        { ...createMockReport('2', '1', new Date()), status: null } as Report,
+        {
+          ...createMockReport('3', '1', new Date()),
+          status: undefined,
+        } as Report,
+      ];
+      mockReportsService.getTodayStatsAggregate.mockResolvedValue(
+        aggregateFromReports(reports),
+      );
+
+      const stats = await gateway['calculateTodayStats']();
+
+      expect(stats.entry).toBe(3);
+      // Only 1 of 3 has a matching status prefix; total denominator is still 3.
+      expect(stats.gateAccessStats.allowed).toBe(Math.round((1 / 3) * 100));
+    });
+
+    it('large fixture: aggregate path returns correct counts without depending on row hydration', async () => {
+      const reports: Report[] = [];
+      for (let i = 0; i < 5000; i++) {
+        const type = i % 3 === 0 ? '2' : '1';
+        const status =
+          i % 5 === 0
+            ? 'RED;denied'
+            : i % 2 === 0
+              ? 'GREEN;allowed'
+              : 'YELLOW;remarks';
+        reports.push(createMockReport(String(i), type, new Date(), status));
+      }
+      mockReportsService.getTodayStatsAggregate.mockResolvedValue(
+        aggregateFromReports(reports),
+      );
+
+      const stats = await gateway['calculateTodayStats']();
+      const expected = aggregateFromReports(reports);
+
+      expect(stats.entry).toBe(expected.entry);
+      expect(stats.exit).toBe(expected.exit);
+      expect(stats.onPremise).toBe(expected.entry - expected.exit);
+      // The gateway never iterates the 5000-row array itself anymore — it
+      // only ever sees the 6-integer aggregate returned by the mock.
+      expect(mockReportsService.getTodayStatsAggregate).toHaveBeenCalledTimes(
+        1,
+      );
     });
   });
 });

@@ -114,11 +114,18 @@ export class ReportsService {
     };
   }
 
-  async getGateAnalytics(type: string = '1', startDate?: string, endDate?: string) {
+  async getGateAnalytics(
+    type: string = '1',
+    startDate?: string,
+    endDate?: string,
+  ) {
     const queryBuilder = this.reportRepository.createQueryBuilder('report');
 
     queryBuilder
-      .select("COALESCE(NULLIF(report.gate, ''), NULLIF(report.device, ''), 'Unknown Gate')", 'gate')
+      .select(
+        "COALESCE(NULLIF(report.gate, ''), NULLIF(report.device, ''), 'Unknown Gate')",
+        'gate',
+      )
       .addSelect('COUNT(*)', 'count');
 
     if (type) {
@@ -316,5 +323,51 @@ export class ReportsService {
 
   async find(options: FindManyOptions<Report>): Promise<Report[]> {
     return await this.reportRepository.find(options);
+  }
+
+  // Six-integer aggregate for the live-stats gateway, replacing the previous
+  // fetch-every-row-then-count-in-JS approach. Read-only, no schema change —
+  // relies on the reports(datetime) index added alongside this method.
+  async getTodayStatsAggregate(
+    start: Date,
+    end: Date,
+  ): Promise<{
+    entry: number;
+    exit: number;
+    green: number;
+    yellow: number;
+    red: number;
+    total: number;
+  }> {
+    const raw = await this.reportRepository
+      .createQueryBuilder('report')
+      .select('COUNT(*) FILTER (WHERE report.type = :entryType)', 'entry')
+      .addSelect('COUNT(*) FILTER (WHERE report.type = :exitType)', 'exit')
+      .addSelect("COUNT(*) FILTER (WHERE report.status LIKE 'GREEN%')", 'green')
+      .addSelect(
+        "COUNT(*) FILTER (WHERE report.status LIKE 'YELLOW%')",
+        'yellow',
+      )
+      .addSelect("COUNT(*) FILTER (WHERE report.status LIKE 'RED%')", 'red')
+      .addSelect('COUNT(*)', 'total')
+      .where('report.datetime BETWEEN :start AND :end', { start, end })
+      .setParameters({ entryType: '1', exitType: '2' })
+      .getRawOne<{
+        entry: string;
+        exit: string;
+        green: string;
+        yellow: string;
+        red: string;
+        total: string;
+      }>();
+
+    return {
+      entry: Number(raw?.entry ?? 0),
+      exit: Number(raw?.exit ?? 0),
+      green: Number(raw?.green ?? 0),
+      yellow: Number(raw?.yellow ?? 0),
+      red: Number(raw?.red ?? 0),
+      total: Number(raw?.total ?? 0),
+    };
   }
 }
