@@ -1,0 +1,22 @@
+# autonomy_level 2 = "AI implements and creates PRs" — gated in this repo by the
+# approval checkpoints in core/autonomy-levels.md: RCA before plan, plan before
+# Deep implementation. Level 2 does not mean "skip the approval step."
+autonomy_level: 2
+
+agents:
+  - coordinator
+  - product-manager
+  - architect
+  - implementer
+  - reviewer
+  - qa
+  - reporter
+
+# No cron/runner exists for AI-workflow automation in this repo. Phases in
+# workflows/daily-cycle.md run on demand, not on a schedule. See
+# runtime/scheduler.md.
+automation: manual
+
+approval:
+  production: required
+  destructive_actions: required
