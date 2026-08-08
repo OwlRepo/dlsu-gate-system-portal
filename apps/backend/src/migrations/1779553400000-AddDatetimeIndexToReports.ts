@@ -9,9 +9,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // INDEX takes a brief write-blocking lock while it builds, but is
 // guaranteed to actually run under this migration setup instead of
 // failing the boot outright.
-export class AddDatetimeIndexToReports1779553400000
-  implements MigrationInterface
-{
+export class AddDatetimeIndexToReports1779553400000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS "IDX_reports_datetime" ON "reports" ("datetime")`,

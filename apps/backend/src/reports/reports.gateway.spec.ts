@@ -134,9 +134,7 @@ describe('ReportsGateway', () => {
 
     // Reset mocks
     jest.clearAllMocks();
-    mockReportsService.getTodayStatsAggregate.mockResolvedValue(
-      ZERO_AGGREGATE,
-    );
+    mockReportsService.getTodayStatsAggregate.mockResolvedValue(ZERO_AGGREGATE);
   });
 
   afterEach(() => {
@@ -598,9 +596,7 @@ describe('ReportsGateway', () => {
       expect(stats.gateAccessStats.allowedWithRemarks).toBe(
         Math.round((1 / 4) * 100),
       );
-      expect(stats.gateAccessStats.notAllowed).toBe(
-        Math.round((1 / 4) * 100),
-      );
+      expect(stats.gateAccessStats.notAllowed).toBe(Math.round((1 / 4) * 100));
     });
 
     it('empty day: all zeros, no division by zero', async () => {
@@ -649,7 +645,11 @@ describe('ReportsGateway', () => {
       for (let i = 0; i < 5000; i++) {
         const type = i % 3 === 0 ? '2' : '1';
         const status =
-          i % 5 === 0 ? 'RED;denied' : i % 2 === 0 ? 'GREEN;allowed' : 'YELLOW;remarks';
+          i % 5 === 0
+            ? 'RED;denied'
+            : i % 2 === 0
+              ? 'GREEN;allowed'
+              : 'YELLOW;remarks';
         reports.push(createMockReport(String(i), type, new Date(), status));
       }
       mockReportsService.getTodayStatsAggregate.mockResolvedValue(

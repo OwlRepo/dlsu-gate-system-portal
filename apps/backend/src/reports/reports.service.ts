@@ -114,11 +114,18 @@ export class ReportsService {
     };
   }
 
-  async getGateAnalytics(type: string = '1', startDate?: string, endDate?: string) {
+  async getGateAnalytics(
+    type: string = '1',
+    startDate?: string,
+    endDate?: string,
+  ) {
     const queryBuilder = this.reportRepository.createQueryBuilder('report');
 
     queryBuilder
-      .select("COALESCE(NULLIF(report.gate, ''), NULLIF(report.device, ''), 'Unknown Gate')", 'gate')
+      .select(
+        "COALESCE(NULLIF(report.gate, ''), NULLIF(report.device, ''), 'Unknown Gate')",
+        'gate',
+      )
       .addSelect('COUNT(*)', 'count');
 
     if (type) {
@@ -336,10 +343,7 @@ export class ReportsService {
       .createQueryBuilder('report')
       .select('COUNT(*) FILTER (WHERE report.type = :entryType)', 'entry')
       .addSelect('COUNT(*) FILTER (WHERE report.type = :exitType)', 'exit')
-      .addSelect(
-        "COUNT(*) FILTER (WHERE report.status LIKE 'GREEN%')",
-        'green',
-      )
+      .addSelect("COUNT(*) FILTER (WHERE report.status LIKE 'GREEN%')", 'green')
       .addSelect(
         "COUNT(*) FILTER (WHERE report.status LIKE 'YELLOW%')",
         'yellow',
