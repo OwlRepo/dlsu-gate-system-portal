@@ -2,18 +2,10 @@ import { Module } from '@nestjs/common';
 import { ScreensaverController } from './screensaver.controller';
 import { ScreensaverService } from './screensaver.service';
 import { ConfigModule } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
 
 @Module({
-  imports: [
-    ConfigModule,
-    JwtModule.registerAsync({
-      useFactory: () => ({
-        secret: process.env.JWT_SECRET,
-        signOptions: { expiresIn: '2d' },
-      }),
-    }),
-  ],
+  // JWT config comes from the global AuthModule (single signing secret).
+  imports: [ConfigModule],
   controllers: [ScreensaverController],
   providers: [ScreensaverService],
   exports: [ScreensaverService],

@@ -1,3 +1,5 @@
+// Must be first: preloads root .env before any module decorator reads process.env.
+import './config/env';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';

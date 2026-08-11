@@ -24,6 +24,13 @@ export class HttpCacheInterceptor extends CacheInterceptor {
       return undefined;
     }
 
+    // Never cache auth endpoints: responses are per-user, and the cache key
+    // below has no user component — user A's /auth/validate would be served
+    // to user B.
+    if (request.url.startsWith('/auth')) {
+      return undefined;
+    }
+
     // Create cache key from URL and query parameters
     return `${request.url}:${JSON.stringify(request.query)}`;
   }

@@ -15,12 +15,20 @@ import { TokenBlacklist } from './entities/token-blacklist.entity';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        signOptions: {
-          expiresIn: '2d', // Set a longer expiration as safety net
-        },
-      }),
+      useFactory: async (configService: ConfigService) => {
+        const secret = configService.get<string>('JWT_SECRET');
+        if (!secret) {
+          throw new Error(
+            'JWT_SECRET is not configured — refusing to start with an empty signing secret.',
+          );
+        }
+        return {
+          secret,
+          signOptions: {
+            expiresIn: '2d', // Set a longer expiration as safety net
+          },
+        };
+      },
       inject: [ConfigService],
     }),
     TypeOrmModule.forFeature([TokenBlacklist]),

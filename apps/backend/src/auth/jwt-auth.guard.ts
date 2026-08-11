@@ -33,9 +33,13 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     const request = context.switchToHttp().getRequest();
     const token = this.extractTokenFromHeader(request);
 
-    // Development mode: bypass authentication if no token provided
-    const isDevelopment = process.env.NODE_ENV === 'development';
-    if (isDevelopment && !token) {
+    // Dev-only bypass: requires an explicit opt-in flag, never active in
+    // production even if NODE_ENV is misconfigured. This app gates physical
+    // access — NODE_ENV alone must not grant an unauthenticated SUPER_ADMIN.
+    const devBypassEnabled =
+      process.env.DEV_AUTH_BYPASS === 'true' &&
+      process.env.NODE_ENV !== 'production';
+    if (devBypassEnabled && !token) {
       // Create mock user with configurable role
       const defaultRole =
         (process.env.DEV_DEFAULT_ROLE as Role) || Role.SUPER_ADMIN;
@@ -52,10 +56,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     }
 
     try {
-      // First verify if token is valid
-      const payload = await this.jwtService.verifyAsync(token, {
-        secret: process.env.JWT_SECRET,
-      });
+      // Verify with the module-configured secret (same one used for signing).
+      // Never read process.env here: an env/config mismatch between sign and
+      // verify once logged every user out seconds after login.
+      const payload = await this.jwtService.verifyAsync(token);
 
       // Then check if token is blacklisted
       const isBlacklisted =
