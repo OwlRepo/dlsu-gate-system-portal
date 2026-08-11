@@ -40,15 +40,17 @@ if (missing.length > 0) {
 // DB_PASSWORD is deliberately absent: check:db connects for real, so a wrong
 // password is proven rather than guessed, and "postgres" is a legitimate local
 // development password.
+// DATABASE_URL is also deliberately absent: only the unused productionConfig in
+// database.config.ts reads it - the app connects through the discrete DB_* keys
+// - so its example value is harmless.
 const placeholders = {
   JWT_SECRET: ['your-jwt-secret', 'secret', 'changeme', 'your-secret-key'],
-  DATABASE_URL: ['postgresql://user:pass@host:5432/db'],
   NEXT_PUBLIC_BIOSTAR_PASSWORD: ['password', 'changeme'],
 };
 
-const stillExample = requiredByTarget[target]
-  .concat('DATABASE_URL')
-  .filter((key) => placeholders[key]?.includes((process.env[key] ?? '').trim()));
+const stillExample = requiredByTarget[target].filter((key) =>
+  placeholders[key]?.includes((process.env[key] ?? '').trim()),
+);
 
 if (stillExample.length > 0) {
   console.error(`[ENV] These keys still hold example values from .env.example: ${stillExample.join(', ')}`);
