@@ -16,6 +16,15 @@ where bun >nul 2>&1
 if %errorlevel% neq 0 (
   echo [WARN] Bun not found, npm fallback expected>>"%MAIN_LOG%"
 )
+rem The service-install step needs NSSM. Catch its absence here, in seconds,
+rem instead of after several minutes of builds and migrations.
+where nssm >nul 2>&1
+if %errorlevel% neq 0 (
+  if not exist "%ProgramData%\chocolatey\bin\nssm.exe" (
+    echo [ERROR] NSSM is not installed. Install it first: choco install nssm -y  or download from https://nssm.cc>>"%MAIN_LOG%"
+    endlocal & exit /b 10
+  )
+)
 net session >nul 2>&1
 if %errorlevel% neq 0 (
   echo [ERROR] Must run as Administrator>>"%MAIN_LOG%"

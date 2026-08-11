@@ -42,7 +42,7 @@ if %errorlevel% equ 0 (
 )
 
 call "%~dp0lib\preflight.bat" "%PROJECT_ROOT%" "%LOG_DIR%"
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" %errorlevel% "preflight" "Fix prerequisites and re-run" & exit /b %errorlevel%
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" %errorlevel% "preflight" "A prerequisite is missing - the lines below name it" "prereq.log" & exit /b %errorlevel%
 
 where bun >nul 2>&1
 if %errorlevel% equ 0 (
@@ -52,32 +52,32 @@ if %errorlevel% equ 0 (
   call "%~dp0lib\logging.bat" WARN "Bun unavailable, using npm install"
   call npm install >"%LOG_DIR%\build.log" 2>&1
 )
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 30 "install" "Dependency install failed" & exit /b 30
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 30 "install" "Dependency install failed" "build.log" & exit /b 30
 
 call bun run verify:env:backend >"%LOG_DIR%\prereq.log" 2>&1
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 20 "verify:env:backend" "Missing backend env" & exit /b 20
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 20 "verify:env:backend" "A required .env value is missing or still an example value - the lines below name it" "prereq.log" & exit /b 20
 call bun run verify:env:web >>"%LOG_DIR%\prereq.log" 2>&1
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 20 "verify:env:web" "Missing web env" & exit /b 20
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 20 "verify:env:web" "A required .env value is missing or still an example value - the lines below name it" "prereq.log" & exit /b 20
 
 rem Prove the database is actually reachable before spending minutes on builds,
 rem and repair a .env password that dotenv would silently cut short.
 call bun run check:db >>"%LOG_DIR%\prereq.log" 2>&1
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 20 "check:db" "Cannot connect to the database - see prereq.log" & exit /b 20
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 20 "check:db" "Cannot connect to the database - the lines below say why" "prereq.log" & exit /b 20
 
 call bun run build:backend >>"%LOG_DIR%\build.log" 2>&1
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 40 "build:backend" "Backend build failed" & exit /b 40
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 40 "build:backend" "Backend build failed" "build.log" & exit /b 40
 call bun run build:web >>"%LOG_DIR%\build.log" 2>&1
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 40 "build:web" "Frontend build failed" & exit /b 40
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 40 "build:web" "Frontend build failed" "build.log" & exit /b 40
 
 call bun run backup:db >"%LOG_DIR%\backup.log" 2>&1
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 50 "backup:db" "Pre-migration database backup failed" & exit /b 50
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 50 "backup:db" "Pre-migration database backup failed" "backup.log" & exit /b 50
 
 rem "bun --cwd" is not a valid flag, so the old invocation always exited 1.
 call bun run migrate:backend >"%LOG_DIR%\migration.log" 2>&1
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 50 "migration:run" "Database migration failed" & exit /b 50
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 50 "migration:run" "Database migration failed" "migration.log" & exit /b 50
 
 call "%~dp0install-monorepo-service.bat" >"%LOG_DIR%\service.log" 2>&1
-if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 60 "install-monorepo-service" "Service install/start failed" & exit /b 60
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 60 "install-monorepo-service" "Service install/start failed" "service.log" & exit /b 60
 
 set "READY=0"
 rem 90 x 2s = 3 minutes. Nest boot plus the first Next request on a cold
@@ -88,7 +88,12 @@ for /l %%a in (1,1,90) do (
   timeout /t 2 /nobreak >nul
 )
 :ready
-if "%READY%" neq "1" call "%~dp0lib\errors.bat" 70 "readiness" "Health checks did not pass" & exit /b 70
+if "%READY%" neq "1" (
+  rem Pull the tail of each runtime log into one file so the failure reason is
+  rem on screen, not three files away.
+  powershell -NoProfile -Command "Get-ChildItem '%~dp0logs\current\*.stderr.log','%~dp0logs\current\*.stdout.log' -ErrorAction SilentlyContinue | ForEach-Object { \"==== $($_.Name) ====\"; Get-Content $_.FullName -Tail 15 }" >"%LOG_DIR%\readiness.log" 2>&1
+  call "%~dp0lib\errors.bat" 70 "readiness" "The apps did not come up healthy - runtime log tails below" "readiness.log" & exit /b 70
+)
 
 copy "%LOG_DIR%\*" "%~dp0logs\current\" >nul 2>&1
 call "%~dp0lib\logging.bat" SUCCESS "Deployment complete"

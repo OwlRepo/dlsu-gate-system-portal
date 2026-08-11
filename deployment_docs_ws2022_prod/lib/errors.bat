@@ -9,6 +9,14 @@ call "%~dp0logging.bat" ERROR "Exit code: %EXIT_CODE%"
 call "%~dp0logging.bat" NEXT_ACTION "Inspect logs in %LOG_DIR%"
 echo [ERROR] %STEP_NAME% failed. Details: %DETAILS%
 echo [INFO] Logs: %LOG_DIR%
+rem Show the step's own log on screen: the operator is non-technical, and the
+rem actionable line (e.g. which .env key is wrong) is inside the file, not in
+rem the generic message above.
+if not "%~4"=="" if exist "%LOG_DIR%\%~4" (
+  echo -------- %~4 --------
+  type "%LOG_DIR%\%~4"
+  echo ---------------------
+)
 rem Hold the window open so a double-click operator can actually read the
 rem failure instead of watching it vanish. Set DLSU_NO_PAUSE=1 for unattended
 rem or scripted runs.
