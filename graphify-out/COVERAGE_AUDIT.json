@@ -1,0 +1,29 @@
+{
+  "supported_files_detected": 413,
+  "supported_files_represented": 413,
+  "file_coverage_percent": 100.0,
+  "zero_symbol_files_repaired": [
+    ".claude/launch.json",
+    ".claude/settings.json",
+    ".vscode/extensions.json",
+    ".vscode/settings.json",
+    ".vscode/tasks.json",
+    "apps/backend/test/jest-e2e.json"
+  ],
+  "raw_extracted_edge_evidence": 4956,
+  "directed_relationships_after_evidence_aggregation": 4583,
+  "edge_evidence_preserved": 4956,
+  "unresolved_endpoint_nodes_added": 120,
+  "external_or_runtime_reference_nodes": 107,
+  "other_unresolved_endpoint_nodes": 13,
+  "sensitive_files_excluded": [
+    ".npmrc",
+    "apps/backend/.env.example.migrated.bak"
+  ],
+  "built_graph_nodes": 2554,
+  "built_graph_edges": 4581,
+  "built_graph_directed": true,
+  "built_graph_supported_files_represented": 413,
+  "built_graph_file_coverage_percent": 100.0,
+  "builder_normalized_relationships": 2
+}

@@ -1,0 +1,182 @@
+{
+  "generated_at": "2026-08-11T14:11:38.443123+00:00",
+  "nodes": {
+    "apps_backend_nest_cli_collection": {
+      "code_fingerprint": "bcb15e3049ff5d131762d2bfe3a6f917c3c64c83ac772467a4073975cd423b5b",
+      "label": "collection",
+      "last": "2026-08-11T14:11:28.089307+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.089307+00:00",
+          "outcome": "useful",
+          "q": "What connects schema collection and sourceRoot to the rest of the system?"
+        }
+      ],
+      "score": 0.999997231,
+      "source_file": "apps/backend/nest-cli.json",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_backend_nest_cli_sourceroot": {
+      "code_fingerprint": "bcb15e3049ff5d131762d2bfe3a6f917c3c64c83ac772467a4073975cd423b5b",
+      "label": "sourceRoot",
+      "last": "2026-08-11T14:11:28.089307+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.089307+00:00",
+          "outcome": "useful",
+          "q": "What connects schema collection and sourceRoot to the rest of the system?"
+        }
+      ],
+      "score": 0.999997231,
+      "source_file": "apps/backend/nest-cli.json",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_backend_src_database_sync_database_sync_queue_service_databasesyncqueueservice": {
+      "code_fingerprint": "0329b19a15186a8c5cebce85a5db9e255cfe42d6e7acae677c28ffe3c209c0ca",
+      "label": "DatabaseSyncQueueService",
+      "last": "2026-08-11T14:11:28.075325+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.075325+00:00",
+          "outcome": "useful",
+          "q": "Should Database Sync Orchestration be split?"
+        }
+      ],
+      "score": 0.999997227,
+      "source_file": "apps/backend/src/database-sync/database-sync-queue.service.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_backend_src_database_sync_database_sync_service_databasesyncservice": {
+      "code_fingerprint": "b103b1f5002adffd8af5054f5233dbafc3ff98c63a5eb5ca63c9ff1f160498a3",
+      "label": "DatabaseSyncService",
+      "last": "2026-08-11T14:11:28.075325+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.075325+00:00",
+          "outcome": "useful",
+          "q": "Should Database Sync Orchestration be split?"
+        }
+      ],
+      "score": 0.999997227,
+      "source_file": "apps/backend/src/database-sync/database-sync.service.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_backend_src_database_sync_entities_sync_schedule_entity_syncschedule": {
+      "code_fingerprint": "59b41e47c8e2f128052181cdae666c9db4a88172e5cd70e8ca3a657bb5260d54",
+      "label": "SyncSchedule",
+      "last": "2026-08-11T14:11:28.075325+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.075325+00:00",
+          "outcome": "useful",
+          "q": "Should Database Sync Orchestration be split?"
+        }
+      ],
+      "score": 0.999997227,
+      "source_file": "apps/backend/src/database-sync/entities/sync-schedule.entity.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_backend_src_employee_dto_create_employee_dto_createemployeedto": {
+      "code_fingerprint": "b5531ed78d538cbc2be17856997708d96ae8a017e9908853962726603df74e4a",
+      "label": "CreateEmployeeDto",
+      "last": "2026-08-11T14:11:28.119894+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.119894+00:00",
+          "outcome": "useful",
+          "q": "Should Employee Management Backend be split?"
+        }
+      ],
+      "score": 0.999997239,
+      "source_file": "apps/backend/src/employee/dto/create-employee.dto.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_backend_src_employee_entities_employee_entity_employee": {
+      "code_fingerprint": "5757a969bf0d67994805a3b1e21f48f312d7fe8f51835b3496d2072d16e7aeb4",
+      "label": "Employee",
+      "last": "2026-08-11T14:11:28.119894+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.119894+00:00",
+          "outcome": "useful",
+          "q": "Should Employee Management Backend be split?"
+        }
+      ],
+      "score": 0.999997239,
+      "source_file": "apps/backend/src/employee/entities/employee.entity.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_backend_src_super_admin_entities_super_admin_entity_superadmin": {
+      "code_fingerprint": "eb28f85e0d1db3dc37c7de685612b2472dcf545bed519d0bb7cdee0c88f4925e",
+      "label": "SuperAdmin",
+      "last": "2026-08-11T14:11:28.075367+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.075367+00:00",
+          "outcome": "useful",
+          "q": "Should Super Admin Controller be split?"
+        }
+      ],
+      "score": 0.999997227,
+      "source_file": "apps/backend/src/super-admin/entities/super-admin.entity.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_backend_src_super_admin_super_admin_service_superadminservice": {
+      "code_fingerprint": "3961d0004330d0b3b8564f3ff9ec51ff71e5660fe6bf2478c43dc6ebee52c7e7",
+      "label": "SuperAdminService",
+      "last": "2026-08-11T14:11:28.075367+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.075367+00:00",
+          "outcome": "useful",
+          "q": "Should Super Admin Controller be split?"
+        }
+      ],
+      "score": 0.999997227,
+      "source_file": "apps/backend/src/super-admin/super-admin.service.ts",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_portal_web_src_components_ui_sidebar_sidebar": {
+      "code_fingerprint": "72aeae5c68c361fce30abd8926dd056e2a7351b16b9223347e1fa68610be3a69",
+      "label": "Sidebar",
+      "last": "2026-08-11T14:11:28.079020+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.079020+00:00",
+          "outcome": "useful",
+          "q": "Should Sidebar Navigation UI be split?"
+        }
+      ],
+      "score": 0.999997228,
+      "source_file": "apps/portal-web/src/components/ui/sidebar.tsx",
+      "status": "tentative",
+      "uses": 1
+    },
+    "apps_portal_web_src_components_ui_sidebar_sidebarprovider": {
+      "code_fingerprint": "72aeae5c68c361fce30abd8926dd056e2a7351b16b9223347e1fa68610be3a69",
+      "label": "SidebarProvider",
+      "last": "2026-08-11T14:11:28.079020+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T14:11:28.079020+00:00",
+          "outcome": "useful",
+          "q": "Should Sidebar Navigation UI be split?"
+        }
+      ],
+      "score": 0.999997228,
+      "source_file": "apps/portal-web/src/components/ui/sidebar.tsx",
+      "status": "tentative",
+      "uses": 1
+    }
+  },
+  "version": 1
+}
