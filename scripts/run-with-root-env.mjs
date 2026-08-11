@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -35,11 +36,26 @@ if (command === 'next') {
     process.env.NODE_ENV = 'development';
   }
 }
+// Package managers put node_modules/.bin on PATH before running a script, but
+// the Windows service invokes this file straight from cmd, where nothing has.
+// Without this the child dies with "'next' is not recognized as an internal or
+// external command" and the watchdog restarts it forever.
+const binDirs = [
+  path.join(process.cwd(), 'node_modules', '.bin'),
+  path.join(repoRoot, 'node_modules', '.bin'),
+].filter((dir) => fs.existsSync(dir));
+
+const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+const childEnv = {
+  ...process.env,
+  [pathKey]: [...binDirs, process.env[pathKey] ?? ''].join(path.delimiter),
+};
+
 const child = spawn(command, commandArgs, {
   cwd: process.cwd(),
   stdio: 'inherit',
   shell: process.platform === 'win32',
-  env: process.env,
+  env: childEnv,
 });
 
 child.on('exit', (code) => process.exit(code ?? 1));
