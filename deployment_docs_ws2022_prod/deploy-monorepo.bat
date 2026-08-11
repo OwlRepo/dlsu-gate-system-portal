@@ -88,12 +88,14 @@ for /l %%a in (1,1,90) do (
   timeout /t 2 /nobreak >nul
 )
 :ready
-if "%READY%" neq "1" (
-  rem Pull the tail of each runtime log into one file so the failure reason is
-  rem on screen, not three files away.
-  powershell -NoProfile -Command "Get-ChildItem '%~dp0logs\current\*.stderr.log','%~dp0logs\current\*.stdout.log' -ErrorAction SilentlyContinue | ForEach-Object { \"==== $($_.Name) ====\"; Get-Content $_.FullName -Tail 15 }" >"%LOG_DIR%\readiness.log" 2>&1
-  call "%~dp0lib\errors.bat" 70 "readiness" "The apps did not come up healthy - runtime log tails below" "readiness.log" & exit /b 70
-)
+if "%READY%"=="1" goto :deploy_ok
+rem Pull the tail of each runtime log into one file so the failure reason is on
+rem screen, not three files away. Kept OUTSIDE any ( ) block and free of \" and
+rem $( ) - cmd's block parser breaks on those and kills the script with 255.
+powershell -NoProfile -Command "Get-ChildItem -Path '%~dp0logs\current\*.log' -ErrorAction SilentlyContinue | ForEach-Object { Write-Output ('==== ' + $_.Name + ' ===='); Get-Content -Path $_.FullName -Tail 15 -ErrorAction SilentlyContinue }" >"%LOG_DIR%\readiness.log" 2>&1
+call "%~dp0lib\errors.bat" 70 "readiness" "The apps did not come up healthy - runtime log tails below" "readiness.log"
+exit /b 70
+:deploy_ok
 
 copy "%LOG_DIR%\*" "%~dp0logs\current\" >nul 2>&1
 call "%~dp0lib\logging.bat" SUCCESS "Deployment complete"
