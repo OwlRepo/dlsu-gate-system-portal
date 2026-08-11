@@ -1,9 +1,11 @@
 import type { NextConfig } from 'next';
+import { join } from 'path';
 
 const skipLintBuild = process.env.SKIP_LINT_BUILD === '1';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Monorepo root; silences the "multiple lockfiles" workspace-root warning.
+  outputFileTracingRoot: join(__dirname, '../../'),
   eslint: {
     ignoreDuringBuilds: skipLintBuild,
   },
@@ -28,8 +30,6 @@ const nextConfig: NextConfig = {
       }
     ],
   },
-
-  output: 'standalone',
 };
 
 export default nextConfig;
