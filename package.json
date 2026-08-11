@@ -12,6 +12,7 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
+    "check:db": "node scripts/check-db.mjs",
     "backup:db": "node scripts/backup-db.mjs",
     "migrate:backend": "turbo run migration:run --filter=./apps/backend",
     "verify:env:backend": "node scripts/verify-env.mjs backend",

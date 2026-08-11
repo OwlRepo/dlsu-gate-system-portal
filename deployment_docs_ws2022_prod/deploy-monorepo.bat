@@ -59,6 +59,11 @@ if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 20 "verify:env:backend" "Missin
 call bun run verify:env:web >>"%LOG_DIR%\prereq.log" 2>&1
 if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 20 "verify:env:web" "Missing web env" & exit /b 20
 
+rem Prove the database is actually reachable before spending minutes on builds,
+rem and repair a .env password that dotenv would silently cut short.
+call bun run check:db >>"%LOG_DIR%\prereq.log" 2>&1
+if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 20 "check:db" "Cannot connect to the database - see prereq.log" & exit /b 20
+
 call bun run build:backend >>"%LOG_DIR%\build.log" 2>&1
 if %errorlevel% neq 0 call "%~dp0lib\errors.bat" 40 "build:backend" "Backend build failed" & exit /b 40
 call bun run build:web >>"%LOG_DIR%\build.log" 2>&1
