@@ -6,6 +6,7 @@ import {
   MemoryHealthIndicator,
   DiskHealthIndicator,
 } from '@nestjs/terminus';
+import { parse } from 'node:path';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -79,11 +80,15 @@ export class HealthController {
       async () => this.memory.checkHeap('memory_heap', 250 * 1024 * 1024), // 250MB
       async () => this.memory.checkRSS('memory_rss', 250 * 1024 * 1024), // 250MB
 
-      // Disk health check
+      // Disk health check.
+      // The path must be the filesystem root of the drive we are running on.
+      // Hardcoding '/' made check-disk-space throw InvalidPathError on Windows
+      // ("should be X:\..."), so /health returned 503 on every request and the
+      // deploy never passed its readiness gate.
       async () =>
         this.disk.checkStorage('storage', {
           thresholdPercent: 0.9,
-          path: '/',
+          path: parse(process.cwd()).root,
         }),
 
       // Custom database connection check
