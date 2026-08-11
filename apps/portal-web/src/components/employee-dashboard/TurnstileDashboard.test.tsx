@@ -314,6 +314,28 @@ describe("TurnstileDashboard", () => {
     expect(config.params?.params).toBe("1001");
   });
 
+  it("reconnects with a fresh BioStar login after the socket closes (session kicked)", async () => {
+    vi.useFakeTimers();
+    const { ws } = await mountAndOpen();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    const loginCallsBefore = mockPost.mock.calls.filter(
+      ([url]: [string]) => url === "/api/login"
+    ).length;
+
+    await act(async () => {
+      ws.onclose?.();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_100);
+    });
+
+    const loginCallsAfter = mockPost.mock.calls.filter(
+      ([url]: [string]) => url === "/api/login"
+    ).length;
+    expect(loginCallsAfter).toBe(loginCallsBefore + 1);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
   it("keeps two different devices' report identities distinct (no collapse to a single undefined key)", async () => {
     const { ws } = await mountAndOpen();
 

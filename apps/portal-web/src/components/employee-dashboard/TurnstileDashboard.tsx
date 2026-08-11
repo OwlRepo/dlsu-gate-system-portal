@@ -28,6 +28,7 @@ import {
   normalizeDeviceId,
   normalizeUserId,
 } from "@/lib/biostar-event";
+import { reconnectDelayMs } from "@/lib/ws-reconnect";
 
 // Max retry attempts for a report POST before it is dropped (loudly logged).
 const MAX_REPORT_POST_ATTEMPTS = 5;
@@ -261,6 +262,22 @@ export default function TurnstileDashboard() {
     // Hoisted to the effect scope (not the inner async function) so the cleanup
     // returned by this useEffect can actually see and close the real socket.
     let ws: WebSocket | undefined;
+    // Auto-reconnect: BioStar keeps one session per account, so another login
+    // (e.g. the admin dashboard) kills this page's session and closes the
+    // socket. Without a reconnect the feed stayed dead until a manual reload.
+    let disposed = false;
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer) return;
+      const delay = reconnectDelayMs(reconnectAttempt++);
+      console.warn(`BioStar WebSocket down — reconnecting in ${delay}ms`);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined;
+        fetchSessionId();
+      }, delay);
+    };
 
     const fetchSessionId = async () => {
       try {
@@ -285,6 +302,7 @@ export default function TurnstileDashboard() {
 
           ws.onopen = () => {
             console.log("WebSocket connection established.");
+            reconnectAttempt = 0;
             // Send the session ID to the WebSocket server
             ws?.send(`bs-session-id=${response.data.bsSessionId}`);
 
@@ -365,6 +383,7 @@ export default function TurnstileDashboard() {
 
           ws.onclose = () => {
             console.log("WebSocket connection closed.");
+            scheduleReconnect();
           };
         } else {
           console.error(
@@ -373,6 +392,7 @@ export default function TurnstileDashboard() {
         }
       } catch (error) {
         console.error("Error logging in:", error);
+        scheduleReconnect();
       }
     };
 
@@ -381,6 +401,10 @@ export default function TurnstileDashboard() {
     // Cleanup on component unmount — returned from the outer effect itself so it
     // always sees the real `ws`, instead of being discarded from inside the async fn.
     return () => {
+      disposed = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
       }

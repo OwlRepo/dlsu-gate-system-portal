@@ -25,6 +25,7 @@ import {
   normalizeDeviceId,
   normalizeUserId,
 } from "@/lib/biostar-event";
+import { reconnectDelayMs } from "@/lib/ws-reconnect";
 import {
   Dialog,
   DialogContent,
@@ -199,6 +200,22 @@ export function Dashboard() {
     // cleanup function returned by this effect can always reach the socket
     // that was actually created, and close it on unmount.
     let ws: WebSocket | undefined;
+    // Auto-reconnect: BioStar keeps one session per account, so another login
+    // (e.g. the operator page) kills this page's session and closes the
+    // socket. Without a reconnect the live table stayed dead until reload.
+    let disposed = false;
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer) return;
+      const delay = reconnectDelayMs(reconnectAttempt++);
+      console.warn(`BioStar WebSocket down — reconnecting in ${delay}ms`);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined;
+        fetchSessionId();
+      }, delay);
+    };
 
     const fetchSessionId = async () => {
       try {
@@ -223,6 +240,7 @@ export function Dashboard() {
 
           ws.onopen = () => {
             console.log("WebSocket connection established.");
+            reconnectAttempt = 0;
             // Send the session ID to the WebSocket server
             ws?.send(`bs-session-id=${response.data.bsSessionId}`);
 
@@ -298,6 +316,7 @@ export function Dashboard() {
 
           ws.onclose = () => {
             console.log("WebSocket connection closed.");
+            scheduleReconnect();
           };
         } else {
           console.error(
@@ -309,6 +328,7 @@ export function Dashboard() {
         // console.log('Login response:', response.data);
       } catch (error) {
         console.error("Error logging in:", error);
+        scheduleReconnect();
       }
     };
 
@@ -318,6 +338,10 @@ export function Dashboard() {
     // from the async fetchSessionId, whose return value would be a promise
     // React never sees) so the socket is actually closed.
     return () => {
+      disposed = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
