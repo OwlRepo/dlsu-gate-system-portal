@@ -202,7 +202,10 @@ export class LoginController {
       throw new UnauthorizedException('Invalid token');
     }
 
-    const userType = decodedToken['role'];
+    // LoginService signs regular admins with role 'ADMIN' (uppercase) while the
+    // cases below are lowercase, so every non-super-admin login used to fall
+    // through to "Invalid user type" and bounce back to the login page.
+    const userType = String(decodedToken['role'] ?? '').toLowerCase();
     let userInfo;
 
     try {

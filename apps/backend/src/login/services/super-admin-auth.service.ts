@@ -42,7 +42,11 @@ export class SuperAdminAuthService {
     }
 
     // Invalidate previous tokens before issuing new one
-    await this.invalidatePreviousTokens(parseInt(superAdmin.super_admin_id));
+    // superAdmin.id, not super_admin_id: the latter is a string like
+    // "SAD-ABB31F008C3D", so parseInt yielded NaN and every super admin shared
+    // one "user_token:NaN_super-admin" bucket - one login revoked another's
+    // session, and the guard (which keys on the numeric sub) never matched it.
+    await this.invalidatePreviousTokens(superAdmin.id);
 
     const { password, ...userInfo } = superAdmin;
     const payload = {
@@ -55,7 +59,7 @@ export class SuperAdminAuthService {
 
     // Track the new token
     await this.tokenBlacklistService.trackUserToken(
-      parseInt(superAdmin.super_admin_id),
+      superAdmin.id,
       'super-admin',
       newToken,
     );

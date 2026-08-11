@@ -22,7 +22,12 @@ const useUserToken = () => {
       setToken(parsedUser.token);
 
       try {
-        const decoded: DecodedToken = jwtDecode(parsedUser.token);
+        // The stored token keeps the "Bearer " prefix the API returns, and
+        // jwtDecode throws on it - which left role, userId and username null
+        // for every consumer of this hook. Same strip as middleware.ts.
+        const decoded: DecodedToken = jwtDecode(
+          String(parsedUser.token).replace('Bearer ', ''),
+        );
         setRole(decoded.role);
         setUserId(decoded.sub);
         setUsername(decoded.username)

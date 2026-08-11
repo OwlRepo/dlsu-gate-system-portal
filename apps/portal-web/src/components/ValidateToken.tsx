@@ -11,11 +11,18 @@ export function ValidateToken() {
         // Get token from cookies if available
         const user = Cookies.get('user');
         const token = user ? JSON.parse(user).token : null;
-        
+
+        // No token means there is no session to validate. Asking anyway returns
+        // 401, and the global response interceptor treats any 401 as "session
+        // expired" - which cleared the cookies of a user who had just signed in.
+        if (!token) {
+          return;
+        }
+
         const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/auth/validate`, {
           headers: {
             'accept': 'application/json',
-            'Authorization': token ? token : ''
+            'Authorization': token
           }
         });
 

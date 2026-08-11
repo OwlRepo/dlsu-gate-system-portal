@@ -101,16 +101,20 @@ export class TokenBlacklistService implements OnModuleInit {
   async trackUserToken(userId: number, role: string, token: string) {
     const key = `user_token:${userId}_${role}`;
 
+    // A token must never revoke itself. Two concurrent first requests after a
+    // login can both find this key empty and both call trackUserToken with the
+    // same token; without this comparison the second call blacklists the live
+    // session permanently, and the user is bounced back to the login page.
     if (this.useInMemoryFallback) {
       const previousToken = this.inMemoryTokens.get(key);
-      if (previousToken) {
+      if (previousToken && previousToken !== token) {
         await this.blacklistToken(previousToken);
       }
       this.inMemoryTokens.set(key, token);
     } else {
       try {
         const previousToken = await this.redis.get(key);
-        if (previousToken) {
+        if (previousToken && previousToken !== token) {
           await this.blacklistToken(previousToken);
         }
         await this.redis.set(key, token, 'EX', 172800); // 2 days in seconds

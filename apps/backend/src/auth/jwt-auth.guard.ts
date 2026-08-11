@@ -67,20 +67,26 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       // Ensure role is present
       const userRole = payload.role || 'EMPLOYEE';
 
-      // Get active tokens for the user
-      const activeTokens =
-        await this.tokenBlacklistService.getActiveTokensByUser(
-          payload.sub,
-          userRole,
-        );
+      // Token tracking is bookkeeping, not authorization. A database or Redis
+      // hiccup here must not log out a user whose token has already been
+      // verified and found not blacklisted.
+      try {
+        const activeTokens =
+          await this.tokenBlacklistService.getActiveTokensByUser(
+            payload.sub,
+            userRole,
+          );
 
-      // Track the current token if it's not already tracked
-      if (!activeTokens.includes(token)) {
-        await this.tokenBlacklistService.trackUserToken(
-          payload.sub,
-          userRole,
-          token,
-        );
+        // Track the current token if it's not already tracked
+        if (!activeTokens.includes(token)) {
+          await this.tokenBlacklistService.trackUserToken(
+            payload.sub,
+            userRole,
+            token,
+          );
+        }
+      } catch (trackingError) {
+        console.error('Token tracking failed:', trackingError.message);
       }
 
       request['user'] = {
