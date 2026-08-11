@@ -10,7 +10,12 @@ import { parse } from 'node:path';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Public } from '../auth/public.decorator';
 
+// Public: the deploy readiness gate and infra monitors probe /health without a
+// token. It previously answered tokenless requests only via the (removed)
+// NODE_ENV=development auth bypass.
+@Public()
 @ApiTags('Health')
 @Controller('health')
 export class HealthController {
