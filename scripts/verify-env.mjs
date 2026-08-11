@@ -34,4 +34,33 @@ if (missing.length > 0) {
   process.exit(20);
 }
 
+// Copying .env.example and deploying it unchanged passes a presence-only check,
+// then fails much later as a database auth error - or worse, does not fail at
+// all and ships a guessable JWT signing key on a system that opens doors.
+// DB_PASSWORD is deliberately absent: check:db connects for real, so a wrong
+// password is proven rather than guessed, and "postgres" is a legitimate local
+// development password.
+const placeholders = {
+  JWT_SECRET: ['your-jwt-secret', 'secret', 'changeme', 'your-secret-key'],
+  DATABASE_URL: ['postgresql://user:pass@host:5432/db'],
+  NEXT_PUBLIC_BIOSTAR_PASSWORD: ['password', 'changeme'],
+};
+
+const stillExample = requiredByTarget[target]
+  .concat('DATABASE_URL')
+  .filter((key) => placeholders[key]?.includes((process.env[key] ?? '').trim()));
+
+if (stillExample.length > 0) {
+  console.error(`[ENV] These keys still hold example values from .env.example: ${stillExample.join(', ')}`);
+  console.error('[ENV] Replace them with the real values for this machine before deploying.');
+  if (stillExample.includes('JWT_SECRET')) {
+    console.error('[ENV] JWT_SECRET signs every login token. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+  }
+  process.exit(20);
+}
+
+if (target === 'backend' && process.env.NODE_ENV !== 'production') {
+  console.warn(`[ENV] NODE_ENV is "${process.env.NODE_ENV ?? 'unset'}". On a production box set NODE_ENV=production, otherwise TypeORM logs every query.`);
+}
+
 console.log(`[ENV] ${target} validation passed using ${envPath}`);
