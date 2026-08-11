@@ -60,8 +60,7 @@
     "start:windows": "pm2 start deployment_docs/ecosystem.windows.config.js --env production",
     "stop:windows": "pm2 stop dlsu-portal-be",
     "restart:windows": "pm2 restart dlsu-portal-be",
-    "logs:windows": "pm2 logs dlsu-portal-be",
-    "prepare": "husky"
+    "logs:windows": "pm2 logs dlsu-portal-be"
   },
   "dependencies": {
     "@faker-js/faker": "^9.5.0",
