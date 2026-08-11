@@ -1,4 +1,18 @@
 @echo off
+rem Self-elevate. Preflight, net stop and NSSM all require Administrator, and a
+rem double-click from Explorer is never elevated. Relaunch through UAC instead
+rem of failing with exit 10 in a window that closes before anyone can read it.
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+  echo [INFO] Administrator access is required. Approve the prompt to continue.
+  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  if errorlevel 1 (
+    echo [ERROR] Could not get Administrator access.
+    echo [ERROR] Right-click this file and choose "Run as administrator".
+    pause
+  )
+  exit /b 0
+)
 setlocal enabledelayedexpansion
 cd /d "%~dp0\.."
 set "PROJECT_ROOT=%cd%"
