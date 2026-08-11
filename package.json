@@ -12,6 +12,8 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
+    "backup:db": "node scripts/backup-db.mjs",
+    "migrate:backend": "turbo run migration:run --filter=./apps/backend",
     "verify:env:backend": "node scripts/verify-env.mjs backend",
     "verify:env:web": "node scripts/verify-env.mjs web",
     "deploy:ws2022": "deployment_docs_ws2022_prod/deploy-monorepo.bat",

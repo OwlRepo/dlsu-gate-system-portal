@@ -1,18 +1,22 @@
 @echo off
 setlocal
 cd /d "%~dp0.."
-if not exist logs\current mkdir logs\current >nul 2>&1
-set "BACKEND_OUT=logs\current\backend.stdout.log"
-set "BACKEND_ERR=logs\current\backend.stderr.log"
-set "FRONTEND_OUT=logs\current\frontend.stdout.log"
-set "FRONTEND_ERR=logs\current\frontend.stderr.log"
 
-start "DLSU-BACKEND" /b cmd /c "cd /d apps\backend && node dist\main.js 1>>..\..\%BACKEND_OUT% 2>>..\..\%BACKEND_ERR%"
-start "DLSU-FRONTEND" /b cmd /c "cd /d apps\portal-web && node ..\..\scripts\run-with-root-env.mjs next start 1>>..\..\%FRONTEND_OUT% 2>>..\..\%FRONTEND_ERR%"
+rem Logs live under deployment_docs_ws2022_prod\logs\current, which is where
+rem logs-monorepo.bat tails from. Writing them to <repo>\logs\current instead
+rem left the log viewer following empty files forever.
+set "LOG_DIR=%~dp0logs\current"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
 
-timeout /t 3 /nobreak >nul
+start "DLSU-BACKEND" /b cmd /c "cd /d apps\backend && node dist\main.js 1>>""%LOG_DIR%\backend.stdout.log"" 2>>""%LOG_DIR%\backend.stderr.log"""
+start "DLSU-FRONTEND" /b cmd /c "cd /d apps\portal-web && node ..\..\scripts\run-with-root-env.mjs next start 1>>""%LOG_DIR%\frontend.stdout.log"" 2>>""%LOG_DIR%\frontend.stderr.log"""
+
+timeout /t 15 /nobreak >nul
 :watch
-powershell -NoProfile -Command "$b=Get-Process -Name node -ErrorAction SilentlyContinue | ? { $_.Path -like '*node*' }; if($b){exit 0}else{exit 1}" >nul 2>&1
+rem Check the ports are actually listening, not merely that some node process
+rem exists. The old check passed whenever any unrelated node process was alive,
+rem so a dead backend never triggered an NSSM restart.
+powershell -NoProfile -Command "$p=@(10580,3000); foreach($x in $p){ if(-not (Get-NetTCPConnection -LocalPort $x -State Listen -ErrorAction SilentlyContinue)){ exit 1 } }; exit 0" >nul 2>&1
 if %errorlevel% neq 0 exit /b 1
 timeout /t 10 /nobreak >nul
 goto :watch

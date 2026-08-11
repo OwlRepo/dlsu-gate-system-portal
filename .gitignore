@@ -39,3 +39,6 @@ yarn-error.log*
 
 # runtime uploads
 apps/backend/persistent_uploads/
+
+# Pre-migration database dumps written by scripts/backup-db.mjs
+backups/
