@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { config } from 'dotenv';
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+// fileURLToPath, not new URL().pathname: pathname keeps percent-encoding and a
+// leading slash before the drive letter, so on Windows a repo at
+// "C:\DLSU Update August 10" resolved to "C:\C:\DLSU%20Update%20August%2010".
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const envPath = path.join(repoRoot, '.env');
 
 if (!fs.existsSync(envPath)) {
