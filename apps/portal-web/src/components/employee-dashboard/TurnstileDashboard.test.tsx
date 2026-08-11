@@ -53,16 +53,22 @@ const baseUser = {
 };
 
 function rawEvent(overrides: Partial<{
-  user_id: string;
-  device_id: string;
+  user_id: unknown;
+  device_id: unknown;
   datetime: string;
   tna_key: string;
   event_type_id: { code: string; name: string };
 }> = {}) {
   return {
     Event: {
-      user_id: overrides.user_id ?? "1001",
-      device_id: overrides.device_id ?? "538203430",
+      // Default to the REAL BioStar wsapi shape: nested objects, not strings.
+      // String overrides in individual tests double as dual-shape tolerance
+      // coverage. Regression db466a7: string-only fixtures kept the suite
+      // green while every real (object-shaped) tap was dropped in production.
+      user_id: overrides.user_id ?? { user_id: "1001", name: "Alex Cruz" },
+      device_id:
+        overrides.device_id ??
+        { id: "538203430", name: "Gate 3 - East Entrance" },
       datetime: overrides.datetime ?? "2026-05-24T01:00:00.000Z",
       tna_key: overrides.tna_key ?? "1",
       event_type_id: overrides.event_type_id ?? { code: "1", name: "IDENTIFICATION_SUCCESS" },

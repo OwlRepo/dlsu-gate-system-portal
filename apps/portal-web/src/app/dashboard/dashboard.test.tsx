@@ -73,7 +73,14 @@ type RawEventOverrides = {
 function makeRawEvent(overrides: RawEventOverrides) {
   return {
     Event: {
-      user_id: overrides.userId ?? "1001",
+      // Default to the REAL BioStar wsapi shape (nested user_id object).
+      // Tests passing explicit string userId/deviceId also exercise the
+      // string-tolerant path. See db466a7 regression: string-only fixtures
+      // hid the object-shape drop in production.
+      user_id:
+        overrides.userId !== undefined
+          ? overrides.userId
+          : { user_id: "1001", name: "Test User" },
       device_id: overrides.deviceId,
       datetime: overrides.datetime ?? "2026-08-08T10:00:00.000Z",
       tna_key: overrides.tnaKey ?? "1",

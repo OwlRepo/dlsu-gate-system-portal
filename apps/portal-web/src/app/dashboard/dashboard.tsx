@@ -20,7 +20,11 @@ import { useReportsSocket } from "@/hooks/useReportSocket";
 import { mapScanToReportData } from "@/lib/report-mapper";
 import { isMockMode } from "@/lib/mock-mode";
 import { mockDashboardScans } from "@/mocks/data/dashboard";
-import { normalizeDeviceId, normalizeUserId } from "@/lib/biostar-event";
+import {
+  deviceDisplayName,
+  normalizeDeviceId,
+  normalizeUserId,
+} from "@/lib/biostar-event";
 import {
   Dialog,
   DialogContent,
@@ -279,7 +283,7 @@ export function Dashboard() {
                 },
                 {
                   id: normalizedDeviceId,
-                  name: `Device ${normalizedDeviceId}`,
+                  name: deviceDisplayName(device_id, normalizedDeviceId),
                 },
                 tna_key,
                 datetime,

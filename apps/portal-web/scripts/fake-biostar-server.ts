@@ -196,6 +196,8 @@ interface FireEventBody {
   tna_key: string;
   event_type_name: string;
   datetime?: string;
+  user_name?: string;
+  device_name?: string;
 }
 
 interface FireEventRequest {
@@ -302,10 +304,20 @@ function readJsonBody<T = unknown>(req: http.IncomingMessage): Promise<T> {
 function broadcastEventSequence(events: FireEventBody[], intervalMs: number): void {
   events.forEach((event, index) => {
     setTimeout(() => {
+      // Real BioStar wsapi frames carry user_id and device_id as nested
+      // objects (Suprema docs: device_id = {id, name}; user_id = {user_id,
+      // name, ...}). Emit that shape so QA exercises what production sees.
       const frame = {
         Event: {
-          user_id: event.user_id,
-          device_id: event.device_id,
+          user_id: {
+            user_id: event.user_id,
+            name: event.user_name ?? `User ${event.user_id}`,
+            photo_exists: "true",
+          },
+          device_id: {
+            id: event.device_id,
+            name: event.device_name ?? `Gate ${event.device_id}`,
+          },
           datetime: event.datetime ?? new Date().toISOString(),
           tna_key: event.tna_key,
           event_type_id: { name: event.event_type_name },

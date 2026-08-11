@@ -23,7 +23,11 @@ import {
 } from "@/lib/types";
 import useUserToken from "@/hooks/useUserToken";
 import { getAccessStatus, toLegacyStatus } from "@/lib/access-status";
-import { normalizeDeviceId, normalizeUserId } from "@/lib/biostar-event";
+import {
+  deviceDisplayName,
+  normalizeDeviceId,
+  normalizeUserId,
+} from "@/lib/biostar-event";
 
 // Max retry attempts for a report POST before it is dropped (loudly logged).
 const MAX_REPORT_POST_ATTEMPTS = 5;
@@ -346,7 +350,7 @@ export default function TurnstileDashboard() {
                 },
                 {
                   id: normalizedDeviceId,
-                  name: `Device ${normalizedDeviceId}`,
+                  name: deviceDisplayName(device_id, normalizedDeviceId),
                 },
                 datetime,
                 tna_key,
