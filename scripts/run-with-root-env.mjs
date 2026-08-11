@@ -1,10 +1,21 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { config } from 'dotenv';
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-config({ path: path.join(repoRoot, '.env') });
+// fileURLToPath, not new URL().pathname: pathname keeps percent-encoding and a
+// leading slash before the drive letter, so on Windows a repo at
+// "C:\DLSU Update August 10" resolved to "C:\C:\DLSU%20Update%20August%2010".
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const envPath = path.join(repoRoot, '.env');
+
+// Warn loudly: a missed .env here bakes undefined NEXT_PUBLIC_* values into the
+// Next build, which then fails in the browser instead of at build time.
+const { error } = config({ path: envPath });
+if (error) {
+  console.warn(`[ENV] Could not load root .env at ${envPath}: ${error.message}`);
+}
 
 const args = process.argv.slice(2);
 if (args.length === 0) {
