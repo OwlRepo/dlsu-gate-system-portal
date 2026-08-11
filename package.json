@@ -2,6 +2,7 @@
   "name": "dlsu-gate-system-portal",
   "private": true,
   "scripts": {
+    "postinstall": "patch-package",
     "build": "turbo run build",
     "dev": "turbo run dev",
     "dev:backend": "turbo run dev --filter=./apps/backend",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "dotenv": "^16.4.7",
+    "patch-package": "^8.0.0",
     "prettier": "^3.7.4",
     "turbo": "^2.9.14",
     "typescript": "5.9.2"
