@@ -12,6 +12,16 @@ import { DataSource } from 'typeorm';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Public } from '../auth/public.decorator';
 
+// Threshold from env with a sane default. The old hardcoded limits (250MB RSS,
+// 90% disk) sat below what a warm Nest+TypeORM process and an aging drive
+// actually use, so /health went 503 — and the deploy readiness gate failed —
+// on perfectly working boxes.
+export function healthThreshold(envKey: string, fallback: number): number {
+  const raw = process.env[envKey];
+  const parsed = raw === undefined ? NaN : Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 // Public: the deploy readiness gate and infra monitors probe /health without a
 // token. It previously answered tokenless requests only via the (removed)
 // NODE_ENV=development auth bypass.
@@ -82,8 +92,16 @@ export class HealthController {
       async () => this.db.pingCheck('database', { timeout: 3000 }),
 
       // Memory health check
-      async () => this.memory.checkHeap('memory_heap', 250 * 1024 * 1024), // 250MB
-      async () => this.memory.checkRSS('memory_rss', 250 * 1024 * 1024), // 250MB
+      async () =>
+        this.memory.checkHeap(
+          'memory_heap',
+          healthThreshold('HEALTH_HEAP_MB', 512) * 1024 * 1024,
+        ),
+      async () =>
+        this.memory.checkRSS(
+          'memory_rss',
+          healthThreshold('HEALTH_RSS_MB', 1024) * 1024 * 1024,
+        ),
 
       // Disk health check.
       // The path must be the filesystem root of the drive we are running on.
@@ -92,7 +110,7 @@ export class HealthController {
       // deploy never passed its readiness gate.
       async () =>
         this.disk.checkStorage('storage', {
-          thresholdPercent: 0.9,
+          thresholdPercent: healthThreshold('HEALTH_DISK_THRESHOLD', 0.95),
           path: parse(process.cwd()).root,
         }),
 
