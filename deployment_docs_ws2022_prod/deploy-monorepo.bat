@@ -3,16 +3,20 @@ rem Self-elevate. Preflight, net stop and NSSM all require Administrator, and a
 rem double-click from Explorer is never elevated. Relaunch through UAC instead
 rem of failing with exit 10 in a window that closes before anyone can read it.
 net session >nul 2>&1
-if %errorlevel% neq 0 (
-  echo [INFO] Administrator access is required. Approve the prompt to continue.
-  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-  if errorlevel 1 (
-    echo [ERROR] Could not get Administrator access.
-    echo [ERROR] Right-click this file and choose "Run as administrator".
-    pause
-  )
-  exit /b 0
+if %errorlevel% equ 0 goto :elevated
+echo [INFO] Administrator access is required. Approve the prompt to continue.
+rem Relaunch through "cmd /k" so the elevated window stays open no matter how
+rem the script ends - a silent termination must never close the window before
+rem anyone can read it. Kept outside any ( ) block because \" inside a
+rem parenthesized block trips cmd's block parser (see the readiness section).
+powershell -NoProfile -Command "Start-Process cmd -ArgumentList '/k','\"%~f0\"' -Verb RunAs"
+if errorlevel 1 (
+  echo [ERROR] Could not get Administrator access.
+  echo [ERROR] Right-click this file and choose "Run as administrator".
+  pause
 )
+exit /b 0
+:elevated
 setlocal enabledelayedexpansion
 cd /d "%~dp0\.."
 set "PROJECT_ROOT=%cd%"
@@ -30,16 +34,26 @@ rem and the pre-monorepo backend could keep running alongside the new one,
 rem writing duplicate gate events into the same database.
 call "%~dp0lib\logging.bat" INFO "Stopping existing DLSU services"
 net stop DLSUGateMonorepo >nul 2>&1
+rem "call" is mandatory on nssm/pm2 below: npm installs CLIs as .cmd batch
+rem wrappers on Windows, and invoking a batch file without "call" CHAINS it -
+rem this script is terminated on that line with no error and the window just
+rem closes. That is exactly how the WS2022 deploy died: a failed pm2 install
+rem attempt still leaves a pm2.cmd shim on PATH, so "where pm2" succeeds.
+rem The INFO markers bracket each sub-step so any future silent death names
+rem its killer line in orchestrator.log.
 where nssm >nul 2>&1
 if %errorlevel% equ 0 (
-  nssm stop DLSUGateSystemBackend >nul 2>&1
-  nssm remove DLSUGateSystemBackend confirm >nul 2>&1
+  call "%~dp0lib\logging.bat" INFO "Removing legacy DLSUGateSystemBackend service"
+  call nssm stop DLSUGateSystemBackend >nul 2>&1
+  call nssm remove DLSUGateSystemBackend confirm >nul 2>&1
 )
 where pm2 >nul 2>&1
 if %errorlevel% equ 0 (
-  pm2 delete all >nul 2>&1
-  pm2 save --force >nul 2>&1
+  call "%~dp0lib\logging.bat" INFO "Clearing legacy pm2 state"
+  call pm2 delete all >nul 2>&1
+  call pm2 save --force >nul 2>&1
 )
+call "%~dp0lib\logging.bat" INFO "Service stop step finished"
 
 call "%~dp0lib\preflight.bat" "%PROJECT_ROOT%" "%LOG_DIR%"
 if %errorlevel% neq 0 call "%~dp0lib\errors.bat" %errorlevel% "preflight" "A prerequisite is missing - the lines below name it" "prereq.log" & exit /b %errorlevel%
