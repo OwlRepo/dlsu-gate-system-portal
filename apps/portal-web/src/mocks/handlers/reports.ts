@@ -1,12 +1,6 @@
 import { http, HttpResponse } from "msw";
 import { mockGateAnalytics, mockReports } from "@/mocks/data/reports";
 
-const paginate = (page: number, limit: number) => {
-  const start = (page - 1) * limit;
-  const end = start + limit;
-  return mockReports.slice(start, end);
-};
-
 export const reportsHandlers = [
   http.get("*/reports", ({ request }) => {
     const url = new URL(request.url);

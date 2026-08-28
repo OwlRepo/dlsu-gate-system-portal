@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ReportsService } from './reports.service';
-import { Server, Socket } from 'socket.io';
 import { Report } from './entities/report.entity';
+import configuredDayjs from '../config/dayjs.config';
+import type { Dayjs } from 'dayjs';
 import { Logger } from '@nestjs/common';
 
 // Mock dayjs config before importing gateway
@@ -71,7 +72,6 @@ function aggregateFromReports(reports: Report[]): StatsAggregate {
 
 describe('ReportsGateway', () => {
   let gateway: ReportsGateway;
-  let reportsService: ReportsService;
   let mockServer: any;
   let mockLogger: jest.SpyInstance;
 
@@ -110,7 +110,6 @@ describe('ReportsGateway', () => {
     }).compile();
 
     gateway = module.get<ReportsGateway>(ReportsGateway);
-    reportsService = module.get<ReportsService>(ReportsService);
 
     // Mock WebSocket server
     mockServer = {
@@ -522,10 +521,12 @@ describe('ReportsGateway', () => {
 
     it('should handle getCurrentDateString correctly', () => {
       // Mock the actual dayjs call
-      const mockDayjs = require('../config/dayjs.config').default;
-      jest.spyOn(mockDayjs(), 'tz').mockReturnValue({
+      // Only .format() is exercised here, so a partial stand-in is cast to Dayjs
+      // rather than building all 32 members of the real interface. The previous
+      // require() form got the same leniency implicitly, by being typed `any`.
+      jest.spyOn(configuredDayjs(), 'tz').mockReturnValue({
         format: jest.fn().mockReturnValue('2024-03-20'),
-      });
+      } as unknown as Dayjs);
 
       const dateString = gateway['getCurrentDateString']();
 

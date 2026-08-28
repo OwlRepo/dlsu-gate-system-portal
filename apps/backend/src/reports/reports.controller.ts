@@ -351,7 +351,10 @@ export class ReportsController {
     description: 'End date (YYYY-MM-DD), must be paired with startDate',
   })
   async getGateAnalytics(@Query() query: GateAnalyticsQueryDto) {
-    if ((query.startDate && !query.endDate) || (!query.startDate && query.endDate)) {
+    if (
+      (query.startDate && !query.endDate) ||
+      (!query.startDate && query.endDate)
+    ) {
       throw new UnprocessableEntityException(
         'Both startDate and endDate must be provided together',
       );

@@ -161,10 +161,9 @@ deployment_docs_ws2022_prod\stop-monorepo.bat
 - `60` service install/start failure
 - `70` readiness/health failure
 
-## AI Integration (Codex + ChatGPT)
-- Start with `AGENTS.md`
-- Follow `docs/ai/entry-point.md`
-- Codex local instructions: `.codex/`
+## AI Integration
+- Start with `CLAUDE.md` — it routes into the operating layer.
+- The operating layer lives in `.ai-engineering/`; `.ai-engineering/MANIFEST.md` is the authoritative file list.
 - VS Code task integration: `.vscode/tasks.json`
 
 ## Notes

@@ -60,7 +60,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- interface requires these params
   async syncFromBiostar(jobKey: string, jobName?: string): Promise<void> {
     void jobName; // intentionally unused for path-level sync
     const { token, sessionId } = await this.biostarApiService.getApiToken();

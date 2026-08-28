@@ -318,8 +318,8 @@ describe("TurnstileDashboard", () => {
     vi.useFakeTimers();
     const { ws } = await mountAndOpen();
     expect(FakeWebSocket.instances).toHaveLength(1);
-    const loginCallsBefore = mockPost.mock.calls.filter(
-      ([url]: [string]) => url === "/api/login"
+    const loginCallsBefore = (mockPost.mock.calls as unknown[][]).filter(
+      (call) => call[0] === "/api/login"
     ).length;
 
     await act(async () => {
@@ -329,8 +329,8 @@ describe("TurnstileDashboard", () => {
       await vi.advanceTimersByTimeAsync(2_100);
     });
 
-    const loginCallsAfter = mockPost.mock.calls.filter(
-      ([url]: [string]) => url === "/api/login"
+    const loginCallsAfter = (mockPost.mock.calls as unknown[][]).filter(
+      (call) => call[0] === "/api/login"
     ).length;
     expect(loginCallsAfter).toBe(loginCallsBefore + 1);
     expect(FakeWebSocket.instances).toHaveLength(2);

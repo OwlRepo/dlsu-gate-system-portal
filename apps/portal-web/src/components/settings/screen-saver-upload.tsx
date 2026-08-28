@@ -103,7 +103,6 @@ export function ScreenSaverUpload() {
         duration: 3000,
       });
     } catch (error: unknown) {
-      // eslint-disable-next-line no-console
       console.error(error);
       const message =
         axios.isAxiosError(error) && error.response?.data?.message
@@ -150,7 +149,6 @@ export function ScreenSaverUpload() {
           );
         }
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error("Failed to fetch screensaver:", err);
         setDefaultScreensaverUrl(null);
       }
