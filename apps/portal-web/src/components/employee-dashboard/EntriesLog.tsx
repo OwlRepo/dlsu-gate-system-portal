@@ -14,6 +14,7 @@ import {
 import { Button } from "../ui/button";
 import { useState } from "react";
 import { getAccessStatus } from "@/lib/access-status";
+import { getImageType } from "@/lib/image-type";
 
 interface LogEntry {
   queue: ScanProps[];
@@ -56,17 +57,6 @@ export default function EntriesLog({ queue }: LogEntry) {
     assignedDeviceIds.length > 0
       ? queue.filter((entry) => assignedDeviceIds.includes(entry.device.id))
       : queue;
-
-  const getImageType = (base64: string) => {
-    if (base64.startsWith("iVBORw0KGgo")) {
-      return "image/png";
-    } else if (base64.startsWith("R0lGODlh")) {
-      return "image/gif";
-    } else if (base64.startsWith("9j/4AAQSkZJRgABAQAAAQABAAD/")) {
-      return "image/jpeg";
-    }
-    return "image/png"; // Default to PNG if undetectable
-  };
 
   // const updatedScanQueue = queue.map((queue) => {
   //   if (queue.userImage) {

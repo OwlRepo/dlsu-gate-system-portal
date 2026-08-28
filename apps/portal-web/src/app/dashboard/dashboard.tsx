@@ -35,6 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { fetchSyncedPhoto } from "@/lib/synced-photo";
 
 export function Dashboard() {
   const { token } = useUserToken();
@@ -387,9 +388,13 @@ export function Dashboard() {
 
       console.log("WebSocket Event Received:", datetime); // Add this to track events
 
-      const userImage = response.data.data.User.photo
-        ? response.data.data.User.photo
-        : undefined;
+      // BioStar first. On the Dasma deployment nothing ever uploads a photo TO
+      // BioStar, so when it has none the copy the sync pulled into PostgreSQL
+      // is the only one there is — without this fallback that photo is never
+      // displayed anywhere.
+      const userImage =
+        response.data.data.User.photo ||
+        (await fetchSyncedPhoto(String(user.user_id ?? ""), token));
 
       const userCustomFields = response.data.data.User.user_custom_fields || [];
 

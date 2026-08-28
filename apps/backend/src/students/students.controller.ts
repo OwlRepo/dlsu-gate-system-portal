@@ -1,9 +1,11 @@
 import {
   Controller,
   Get,
+  Param,
   Query,
   Res,
   Header,
+  NotFoundException,
   ValidationPipe,
   UnprocessableEntityException,
   UseGuards,
@@ -152,5 +154,33 @@ export class StudentsController {
     res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
 
     return this.studentsService.streamStudentsCsv(query, res);
+  }
+
+  /**
+   * Declared AFTER 'generate-csv' on purpose: Nest matches routes in
+   * declaration order, so a parameter route placed above it would swallow
+   * '/students/generate-csv' as an ID number.
+   */
+  @Get(':idNumber')
+  @ApiOperation({
+    summary: "Get one student's synced profile photo",
+    description: `
+      Returns { ID_Number, Name, Photo } for a single student.
+
+      Exists so the gate dashboards can fall back to the photo the Dasma sync
+      pulled from BioStar into PostgreSQL when BioStar itself returns no photo
+      for a user. The paginated GET /students deliberately omits Photo to keep
+      the list payload small, so it cannot serve this.
+    `,
+  })
+  @ApiResponse({ status: 200, description: 'Student found' })
+  @ApiResponse({ status: 404, description: 'No student with that ID number' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async findOneByIdNumber(@Param('idNumber') idNumber: string) {
+    const student = await this.studentsService.findPhotoByIdNumber(idNumber);
+    if (!student) {
+      throw new NotFoundException(`No student with ID_Number ${idNumber}`);
+    }
+    return student;
   }
 }

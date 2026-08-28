@@ -66,6 +66,12 @@ export class DatabaseSyncCommonService {
     'synced-records',
     'csv',
   );
+  /** Per-run machine-readable diagnostics, for handing back after a staging run. */
+  private readonly diagnosticsDir = path.join(
+    process.cwd(),
+    'logs',
+    'diagnostics',
+  );
   private readonly photoConversionLogDir = path.join(
     process.cwd(),
     'logs',
@@ -632,5 +638,58 @@ export class DatabaseSyncCommonService {
 
   getLogDir(): string {
     return this.logDir;
+  }
+
+  /**
+   * Writes one machine-readable diagnostics file per sync run.
+   *
+   * This exists so a staging run answers the open questions on its own — which
+   * users BioStar reported that PostgreSQL does not hold, which detail fetches
+   * failed, whether the stored expiry window is actually persisting — instead
+   * of someone reproducing each one by hand.
+   *
+   * Identifiers only. No names, no photo bytes, no remark text: the existing
+   * audit logs under logs/synced-records already carry plaintext PII and this
+   * must not widen that surface. Long id lists are capped so a bad run cannot
+   * produce a gigabyte of JSON.
+   */
+  async writeSyncDiagnostics(
+    jobName: string,
+    payload: Record<string, unknown>,
+  ): Promise<string | null> {
+    try {
+      if (!fs.existsSync(this.diagnosticsDir)) {
+        fs.mkdirSync(this.diagnosticsDir, { recursive: true });
+      }
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filePath = path.join(
+        this.diagnosticsDir,
+        `diag_${jobName}_${stamp}.json`,
+      );
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify(
+          { jobName, writtenAt: new Date().toISOString(), ...payload },
+          null,
+          2,
+        ),
+      );
+      this.logger.log(`Diagnostics written to ${filePath}`);
+      return filePath;
+    } catch (error) {
+      // Diagnostics are an aid, never a reason to fail a sync.
+      this.logger.warn(
+        `Failed to write diagnostics for ${jobName}: ${(error as Error)?.message}`,
+      );
+      return null;
+    }
+  }
+
+  /** Caps an id list so one bad run cannot write a gigabyte of JSON. */
+  capIds(ids: string[], limit = 500): { ids: string[]; truncated: number } {
+    return {
+      ids: ids.slice(0, limit),
+      truncated: Math.max(0, ids.length - limit),
+    };
   }
 }

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import * as fsMock from 'fs';
 import * as sql from 'mssql';
 import axios from 'axios';
 import { createObjectCsvWriter } from 'csv-writer';
@@ -160,6 +161,7 @@ describe('DatabaseSyncDasmaPathService', () => {
   let service: DatabaseSyncDasmaPathService;
   let studentRepo: FakeStudentRepository;
   let commonService: DatabaseSyncCommonService;
+  let biostarApi: jest.Mocked<BiostarApiService>;
   /** Every CSV row handed to csv-writer, newest run last. */
   let writtenCsvRows: Record<string, string>[][];
   /** The header definition csv-writer was configured with, per run. */
@@ -344,6 +346,7 @@ describe('DatabaseSyncDasmaPathService', () => {
             fetchBiostarUserDetailWithRetry: jest.fn(
               async (userId: string) => biostarDetails[userId] ?? null,
             ),
+            clearUserCustomField: jest.fn().mockResolvedValue(true),
           },
         },
       ],
@@ -351,6 +354,7 @@ describe('DatabaseSyncDasmaPathService', () => {
 
     service = module.get(DatabaseSyncDasmaPathService);
     commonService = module.get(DatabaseSyncCommonService);
+    biostarApi = module.get(BiostarApiService);
 
     // Audit-log writers touch real directories; silence them.
     jest.spyOn(commonService, 'logSyncedRecords').mockResolvedValue(undefined);
@@ -546,6 +550,79 @@ describe('DatabaseSyncDasmaPathService', () => {
       // reported defect, and is why clearing needs the per-user PUT as well.
       expect(csvRowFor('12100001', 1).remarks).toBe('');
     });
+
+    it('clears the remark in BioStar via PUT when the flag is on', async () => {
+      CONFIG.DASMA_CLEAR_REMARKS_VIA_API = 'true';
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      sourceRows = [sourceRow({ Remarks: null })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledTimes(1);
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledWith(
+        '12100001',
+        'Remarks',
+        't0ken',
+        's3ss10n',
+      );
+    });
+
+    it('does not touch BioStar when the flag is off (the default)', async () => {
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      sourceRows = [sourceRow({ Remarks: null })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.clearUserCustomField).not.toHaveBeenCalled();
+    });
+
+    it('only PUTs for remarks that were actually removed', async () => {
+      CONFIG.DASMA_CLEAR_REMARKS_VIA_API = 'true';
+      sourceRows = [
+        sourceRow({ ID: '12100001', Remarks: 'Owes library fee' }),
+        sourceRow({ ID: '12100002', Remarks: 'Late return' }),
+        sourceRow({ ID: '12100003', Remarks: null }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      // Only 12100001 is emptied; 12100002 changes value, 12100003 never had one.
+      sourceRows = [
+        sourceRow({ ID: '12100001', Remarks: null }),
+        sourceRow({ ID: '12100002', Remarks: 'Cleared fine' }),
+        sourceRow({ ID: '12100003', Remarks: null }),
+      ];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledTimes(1);
+      expect(
+        (biostarApi.clearUserCustomField as jest.Mock).mock.calls[0][0],
+      ).toBe('12100001');
+    });
+
+    it('does not abort the sync when clearing a remark fails', async () => {
+      CONFIG.DASMA_CLEAR_REMARKS_VIA_API = 'true';
+      (biostarApi.clearUserCustomField as jest.Mock).mockResolvedValue(false);
+
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      sourceRows = [sourceRow({ Remarks: null })];
+      setClock('2026-08-27T08:00:00+08:00');
+
+      await expect(service.executeDatabaseSync('run-2')).resolves.toMatchObject(
+        { success: true },
+      );
+      expect(studentRepo.byId('12100001').Remarks).toBeNull();
+    });
   });
 
   // =====================================================================
@@ -725,6 +802,111 @@ describe('DatabaseSyncDasmaPathService', () => {
       await service.syncFromBiostar('biostar-1');
 
       expect(studentRepo.byId('12100001').isArchived).toBe(true);
+    });
+  });
+
+  // =====================================================================
+  // Diagnostics — the file handed back after a staging run
+  // =====================================================================
+  describe('diagnostics', () => {
+    /** Parses the JSON handed to the (mocked) writeFileSync. */
+    const diagnosticsWritten = () =>
+      (fsMock.writeFileSync as jest.Mock).mock.calls
+        .filter(([p]) => String(p).includes('diagnostics'))
+        .map(([, body]) => JSON.parse(String(body)));
+
+    beforeEach(() => {
+      jest.spyOn(commonService, 'writeSyncDiagnostics');
+    });
+
+    it('never needs the expiry fallback, because the window is stored before export', async () => {
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      const [first, second] = diagnosticsWritten();
+      // Persistence happens earlier in the same run than the CSV build, and
+      // existingMap is refreshed from the database in between — so even a
+      // brand-new record already has its window by export time. Anything in
+      // this list on staging means that ordering broke.
+      expect(first.expiryFallbackUsed.ids).toEqual([]);
+      expect(second.expiryFallbackUsed.ids).toEqual([]);
+    });
+
+    it('names the users BioStar listed that PostgreSQL does not hold', async () => {
+      biostarPages = [
+        {
+          total: 2,
+          rows: [
+            {
+              user_id: 'IN_PG',
+              photo_exists: true,
+              card_count: '0',
+              last_modified: '1',
+            },
+            {
+              user_id: 'MISSING',
+              photo_exists: false,
+              card_count: '0',
+              last_modified: '2',
+            },
+          ],
+        },
+      ];
+      biostarDetails = { IN_PG: { User: { user_id: 'IN_PG', photo: 'P' } } };
+
+      await service.syncFromBiostar('biostar-1');
+
+      const diag = diagnosticsWritten().at(-1);
+      expect(diag.missingFromPostgres.ids).toEqual(['MISSING']);
+      expect(diag.direction).toBe('biostar-to-postgres');
+    });
+
+    it('records the real list-row field names and the group ids seen', async () => {
+      biostarPages = [
+        {
+          total: 1,
+          rows: [
+            {
+              user_id: '1',
+              photo_exists: true,
+              card_count: '0',
+              last_modified: '1',
+              user_group_id: { id: 1, name: 'All Users' },
+            },
+          ],
+        },
+      ];
+      biostarDetails = { '1': { User: { user_id: '1', photo: 'P' } } };
+
+      await service.syncFromBiostar('biostar-1');
+
+      const diag = diagnosticsWritten().at(-1);
+      expect(diag.listRowKeys).toContain('photo_exists');
+      expect(diag.groupIdsSeen).toEqual(['1']);
+      expect(diag.detailHadPhoto).toBe(1);
+    });
+
+    it('writes a diagnostics file even when the sync throws', async () => {
+      (sql.connect as jest.Mock).mockRejectedValueOnce(
+        new Error('SQL Server unreachable'),
+      );
+
+      await expect(service.executeDatabaseSync('run-1')).rejects.toThrow();
+
+      const diag = diagnosticsWritten().at(-1);
+      expect(diag.failed).toBe(true);
+    });
+
+    it('carries identifiers only — never names, photos or remark text', async () => {
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      const body = JSON.stringify(diagnosticsWritten().at(-1));
+      expect(body).not.toContain('Owes library fee');
+      expect(body).not.toContain('Dela Cruz');
     });
   });
 

@@ -13,6 +13,34 @@ export class StudentsService {
     private studentRepository: Repository<Student>,
   ) {}
 
+  /**
+   * One student's synced profile photo, by ID number.
+   *
+   * The gate dashboards read a person's photo from BioStar. When BioStar has
+   * none, the photo the Dasma sync pulled into PostgreSQL is the only copy
+   * that exists, and nothing served it — `createBaseQuery` deliberately omits
+   * `Photo` from the paginated list, which is the right call for a list
+   * payload but left the synced photo unreachable.
+   *
+   * Returns null when the ID is unknown so the caller can 404 rather than 500.
+   */
+  async findPhotoByIdNumber(idNumber: string): Promise<{
+    ID_Number: string;
+    Name: string;
+    Photo: string | null;
+  } | null> {
+    const student = await this.studentRepository.findOne({
+      where: { ID_Number: idNumber },
+      select: ['ID_Number', 'Name', 'Photo'],
+    });
+    if (!student) return null;
+    return {
+      ID_Number: student.ID_Number,
+      Name: student.Name,
+      Photo: student.Photo ?? null,
+    };
+  }
+
   async findAll(query: StudentPaginationDto) {
     const { page = 1, limit = 10, search, isArchived } = query;
     const skip = (page - 1) * limit;

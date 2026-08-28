@@ -7,6 +7,7 @@ import { ScanProps } from "@/lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import Image from "next/image";
 import { getAccessStatus } from "@/lib/access-status";
+import { getImageType } from "@/lib/image-type";
 
 interface LiveData {
   data: ScanProps[];
@@ -55,17 +56,6 @@ export function LiveDataTable({ data, handleClear }: LiveData) {
   const handleRowClick = (row: LiveDataRow) => {
     setSelectedData(row);
     setIsDialogOpen(true);
-  };
-
-  const getImageType = (base64: string) => {
-    if (base64.startsWith("iVBORw0KGgo")) {
-      return "image/png";
-    } else if (base64.startsWith("R0lGODlh")) {
-      return "image/gif";
-    } else if (base64.startsWith("9j/4AAQSkZJRgABAQAAAQABAAD/")) {
-      return "image/jpeg";
-    }
-    return "image/png"; // Default to PNG if undetectable
   };
 
   // Map through scanDetails and convert userImage to base64 URL if it exists

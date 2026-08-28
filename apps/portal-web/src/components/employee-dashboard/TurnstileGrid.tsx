@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { Device } from "../users/EmployeeForm";
 import { getAccessStatus } from "@/lib/access-status";
+import { getImageType } from "@/lib/image-type";
 
 export default function TurnstileGrid({
   scanDetails = [],
@@ -84,17 +85,6 @@ export default function TurnstileGrid({
     const indexB = deviceIds.indexOf(b.device.id);
     return indexA - indexB;
   });
-
-  const getImageType = (base64: string) => {
-    if (base64.startsWith("iVBORw0KGgo")) {
-      return "image/png";
-    } else if (base64.startsWith("R0lGODlh")) {
-      return "image/gif";
-    } else if (base64.startsWith("9j/4AAQSkZJRgABAQAAAQABAAD/")) {
-      return "image/jpeg";
-    }
-    return "image/png"; // Default to PNG if undetectable
-  };
 
   // Map through scanDetails and convert userImage to base64 URL if it exists
   const updatedScanDetails = sortedScanDetails.map((scanDetail) => {

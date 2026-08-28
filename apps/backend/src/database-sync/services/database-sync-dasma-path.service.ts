@@ -106,6 +106,14 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     const failedUserIds: string[] = [];
     /** True when the per-run candidate cap, not exhaustion, ended the loop. */
     let endedOnCap = false;
+    /** Every user_id BioStar listed, for the reconciliation below. */
+    const discoveredUserIds: string[] = [];
+    /** Field names on the first list row — settles the list-shape question. */
+    let firstListRowKeys: string[] = [];
+    /** Distinct BioStar group ids seen, to check the hardcoded group_id: 1. */
+    const groupIdsSeen = new Set<string>();
+    let reportedTotal = 0;
+    let totalDetailWithPhoto = 0;
 
     const limit = 500;
     const useIncremental = !!state.lastSuccessAt && !!state.lastModifiedCursor;
@@ -146,6 +154,17 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         const total = parseInt(String(userCollection.total || 0), 10);
         const rows = userCollection.rows || [];
         totalDiscovered += rows.length;
+
+        reportedTotal = total;
+        if (firstListRowKeys.length === 0 && rows.length > 0) {
+          firstListRowKeys = Object.keys(rows[0]).sort();
+        }
+        for (const u of rows as Record<string, unknown>[]) {
+          if (u.user_id != null) discoveredUserIds.push(String(u.user_id));
+          const groupId =
+            (u.user_group_id as { id?: unknown })?.id ?? u.group_id;
+          if (groupId != null) groupIdsSeen.add(String(groupId));
+        }
 
         let candidates = rows.filter((u: Record<string, unknown>) => {
           if (!u.user_id) return false;
@@ -219,6 +238,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               continue;
             }
             totalDetailFetched++;
+            if (
+              (detail.photo ??
+                (detail.User as Record<string, unknown>)?.photo) != null
+            ) {
+              totalDetailWithPhoto++;
+            }
 
             const cleanUserId = (userId || '').trim().replace(/\s/g, '');
             const userObj = (detail.User as Record<string, unknown>) ?? detail;
@@ -366,6 +391,44 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           `[Dasma Biostar] High failure ratio: ${(failRatio * 100).toFixed(1)}% (${totalFailed}/${totalDetailFetched})`,
         );
       }
+      // Names the users BioStar reported that PostgreSQL does not hold, which
+      // is the durable answer to "some ID numbers are not synchronised"
+      // instead of inferring it from counts.
+      const postgresIds = new Set(
+        (await this.studentRepository.find({ select: ['ID_Number'] })).map(
+          (s) => s.ID_Number,
+        ),
+      );
+      const missingFromPostgres = discoveredUserIds.filter(
+        (id) => !postgresIds.has(id),
+      );
+
+      await this.commonService.writeSyncDiagnostics(jobKey, {
+        direction: 'biostar-to-postgres',
+        schemaEnv: 'dasma',
+        incremental: useIncremental,
+        listRowKeys: firstListRowKeys,
+        groupIdsSeen: [...groupIdsSeen],
+        reportedTotal: reportedTotal,
+        discovered: totalDiscovered,
+        candidatesAccepted: totalCandidates,
+        excludedNoPhotoNoCard: totalDiscovered - totalCandidates,
+        detailFetched: totalDetailFetched,
+        detailHadPhoto: totalDetailWithPhoto,
+        detailHadNoPhoto: totalDetailFetched - totalDetailWithPhoto,
+        created: totalCreated,
+        updated: totalUpdated,
+        skippedUnchanged: totalSkipped,
+        failedUserIds: this.commonService.capIds(failedUserIds),
+        missingFromPostgres: this.commonService.capIds(missingFromPostgres),
+        postgresRowCount: postgresIds.size,
+        endedOnCap,
+        cursorMode: this.cursorMode(maxLastModified),
+        lastModifiedCursor: state.lastModifiedCursor,
+        markedSuccessful: !!state.lastSuccessAt,
+        rateLimitHits: totalRateLimitHits,
+      });
+
       if (totalRateLimitHits > 5) {
         this.logger.warn(
           `[Dasma Biostar] Elevated rate limit hits: ${totalRateLimitHits}`,
@@ -521,10 +584,16 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       const runNow = new Date();
 
       // IDs that reached the CSV active but with no stored window, so the run
-      // had to fall back to a today-derived expiry. Large on the first run
-      // after deploy (nothing is backfilled yet), and MUST be empty on the
-      // second — a non-empty list there means the window is not persisting.
+      // fell back to a today-derived expiry rather than shipping a gate device
+      // an empty one. This should always be EMPTY, including the first run
+      // after deploy: the window is persisted earlier in the same run than the
+      // CSV build, and existingMap is refreshed from the database in between.
+      // Anything here means that ordering has broken.
       const expiryFallbackUsed: string[] = [];
+
+      // IDs whose remark went from a value to empty this run. These need an
+      // explicit BioStar PUT; the CSV cannot clear a custom field.
+      const remarksClearedIds: string[] = [];
 
       const batchSize = parseInt(process.env.SYNC_BATCH_SIZE) || 500;
       let totalProcessed = 0;
@@ -643,6 +712,16 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               isArchived: record.isArchived,
               group: groupValue ?? null,
             });
+            // A remark that went from a value to nothing needs a per-user PUT:
+            // an empty CSV cell is ignored by BioStar's import, so the CSV
+            // alone can never clear it.
+            if (
+              'Remarks' in changedFields &&
+              !changedFields.Remarks &&
+              existing.Remarks
+            ) {
+              remarksClearedIds.push(record.ID_Number);
+            }
             const merged = { ...changedFields, ...(activationWindow ?? {}) };
             if (Object.keys(merged).length > 0) {
               toUpdate.push({
@@ -1206,6 +1285,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
       this.logger.log('All batches processed, performing final cleanup...');
 
+      await this.clearRemovedRemarksInBiostar(remarksClearedIds);
+
       let archivedByReconciliation = 0;
       if (seenIdsFromSource.size > 0) {
         const activeStudents = await this.studentRepository.find({
@@ -1250,6 +1331,23 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         }
       }
 
+      await this.commonService.writeSyncDiagnostics(jobName, {
+        direction: 'sql-server-to-postgres-to-biostar',
+        schemaEnv: 'dasma',
+        seenFromSource: seenIdsFromSource.size,
+        activeUploadedToBiostar: totalActiveExported,
+        archivedSkippedFromCsv: totalArchivedDisabledExported,
+        archivedByReconciliation,
+        skippedValidation: totalSkipped,
+        // MUST be empty on every run, including the first after deploy.
+        // Anything here means the stored expiry window is not persisting.
+        expiryFallbackUsed: this.commonService.capIds(expiryFallbackUsed),
+        remarksClearedInPostgres: this.commonService.capIds(remarksClearedIds),
+        remarksClearedInBiostar:
+          (this.configService.get('DASMA_CLEAR_REMARKS_VIA_API') ?? 'false') ===
+          'true',
+      });
+
       return {
         success: true,
         message: 'Sync completed successfully',
@@ -1257,6 +1355,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       };
     } catch (error) {
       this.logger.error(`Sync failed for ${jobName}:`, error);
+      await this.commonService.writeSyncDiagnostics(jobName, {
+        direction: 'sql-server-to-postgres-to-biostar',
+        schemaEnv: 'dasma',
+        failed: true,
+        error: (error as Error)?.message ?? String(error),
+      });
       throw error;
     } finally {
       if (pool) {
@@ -1351,6 +1455,62 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
    * processed, so every later incremental run skips them permanently. Compare
    * numerically when both sides are numbers, lexicographically otherwise.
    */
+  /**
+   * Clears, in BioStar, the remarks that were emptied in the source view this
+   * run. Only those users are touched, so the call count equals the number of
+   * remarks actually removed — typically a handful, never the roster.
+   *
+   * Gated on DASMA_CLEAR_REMARKS_VIA_API (default OFF). This is the only PUT
+   * this codebase makes against production access-control hardware, so it is
+   * opt-in and must be proven on staging first.
+   */
+  private async clearRemovedRemarksInBiostar(userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return;
+
+    const enabled =
+      (this.configService.get('DASMA_CLEAR_REMARKS_VIA_API') ?? 'false') ===
+      'true';
+    if (!enabled) {
+      this.logger.log(
+        `[Dasma] ${userIds.length} remark(s) were cleared in PostgreSQL but NOT in BioStar ` +
+          `(DASMA_CLEAR_REMARKS_VIA_API is off). Affected IDs: ${userIds.slice(0, 20).join(', ')}${userIds.length > 20 ? ' …' : ''}`,
+      );
+      return;
+    }
+
+    const { token, sessionId } = await this.biostarApiService.getApiToken();
+    const concurrency = Math.max(
+      1,
+      parseInt(
+        this.configService.get('BIOSTAR_DETAIL_CONCURRENCY') || '8',
+        10,
+      ) || 8,
+    );
+
+    const results = await this.commonService.runWithConcurrency(
+      userIds,
+      concurrency,
+      (userId: string) =>
+        this.biostarApiService.clearUserCustomField(
+          userId,
+          'Remarks',
+          token,
+          sessionId,
+        ),
+    );
+
+    const failed = userIds.filter((_, i) => !results[i]);
+    this.logger.log(
+      `[Dasma] Remark clear: attempted=${userIds.length}, succeeded=${userIds.length - failed.length}, failed=${failed.length}` +
+        (failed.length ? `, failedIds=${failed.slice(0, 20).join(', ')}` : ''),
+    );
+  }
+
+  /** Reports how the cursor was compared, so the log shows which rule applied. */
+  private cursorMode(cursor: string): 'numeric' | 'lexicographic' {
+    return Number.isFinite(Number(cursor)) ? 'numeric' : 'lexicographic';
+  }
+
   private isLaterCursor(candidate: string, current: string): boolean {
     const a = Number(candidate);
     const b = Number(current);

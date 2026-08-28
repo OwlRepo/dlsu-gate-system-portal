@@ -29,6 +29,7 @@ import {
   normalizeUserId,
 } from "@/lib/biostar-event";
 import { reconnectDelayMs } from "@/lib/ws-reconnect";
+import { fetchSyncedPhoto } from "@/lib/synced-photo";
 
 // Max retry attempts for a report POST before it is dropped (loudly logged).
 const MAX_REPORT_POST_ATTEMPTS = 5;
@@ -450,9 +451,13 @@ export default function TurnstileDashboard() {
         },
       });
 
-      const userImage = response.data.data.User.photo
-        ? response.data.data.User.photo
-        : undefined;
+      // BioStar first. On the Dasma deployment nothing ever uploads a photo TO
+      // BioStar, so when it has none the copy the sync pulled into PostgreSQL
+      // is the only one there is — without this fallback that photo is never
+      // displayed anywhere.
+      const userImage =
+        response.data.data.User.photo ||
+        (await fetchSyncedPhoto(String(user.user_id ?? ""), tokenRef.current));
 
       const userCustomFields = response.data.data.User.user_custom_fields || [];
 

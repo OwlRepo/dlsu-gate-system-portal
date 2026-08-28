@@ -17,6 +17,91 @@ export class BiostarApiService {
     };
   }
 
+  /**
+   * Clears one user custom field — in practice "Remarks" — in BioStar.
+   *
+   * The CSV import cannot do this. Updating a remark to a NEW value through
+   * `csv_import` works, but an empty cell is ignored rather than applied, so a
+   * remark deleted in the DLSU source view stays on the gate screen forever.
+   * Suprema documents the per-user update as the way to clear a user field
+   * (their profile-photo article clears the photo by sending it empty).
+   *
+   * Read-modify-write on purpose: it sends back the exact `user_custom_fields`
+   * array BioStar just returned, with a single `item` blanked. Nothing about
+   * the payload shape is invented here, and fields this call does not target
+   * are handed back untouched.
+   *
+   * Returns false rather than throwing — a BioStar hiccup while clearing one
+   * remark must never abort a roster sync.
+   */
+  async clearUserCustomField(
+    userId: string,
+    fieldName: string,
+    token: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'bs-session-id': sessionId,
+      accept: 'application/json',
+    };
+    const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+    try {
+      const current = await axios.get(
+        `${this.apiBaseUrl}/api/users/${encodeURIComponent(userId)}`,
+        { headers, httpsAgent, timeout: 30000 },
+      );
+
+      const user = (current.data?.User ?? current.data) as Record<
+        string,
+        unknown
+      >;
+      const fields = user?.user_custom_fields;
+      if (!Array.isArray(fields)) {
+        this.logger.warn(
+          `[Biostar] User ${userId} returned no user_custom_fields array; nothing to clear`,
+        );
+        return false;
+      }
+
+      const target = fields.find(
+        (entry) =>
+          (entry as { custom_field?: { name?: string } })?.custom_field
+            ?.name === fieldName,
+      );
+      // Already absent or already blank — the desired end state.
+      if (!target || (target as { item?: unknown }).item === '') {
+        return true;
+      }
+
+      const cleared = fields.map((entry) =>
+        (entry as { custom_field?: { name?: string } })?.custom_field?.name ===
+        fieldName
+          ? { ...(entry as Record<string, unknown>), item: '' }
+          : entry,
+      );
+
+      await axios.put(
+        `${this.apiBaseUrl}/api/users/${encodeURIComponent(userId)}`,
+        { User: { user_custom_fields: cleared } },
+        { headers, httpsAgent, timeout: 30000 },
+      );
+
+      this.logger.log(`[Biostar] Cleared ${fieldName} for user ${userId}`);
+      return true;
+    } catch (error) {
+      const message = axios.isAxiosError(error)
+        ? `${error.response?.status} ${JSON.stringify(error.response?.data ?? error.message)}`
+        : ((error as Error)?.message ?? String(error));
+      this.logger.warn(
+        `[Biostar] Failed to clear ${fieldName} for user ${userId}: ${message}`,
+      );
+      return false;
+    }
+  }
+
   async getApiToken(): Promise<{ token: string; sessionId: string }> {
     try {
       this.logger.log('Attempting to authenticate with BIOSTAR API...');
