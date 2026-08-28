@@ -21,6 +21,9 @@ import { BiostarSyncState } from '../entities/biostar-sync-state.entity';
 import { DatabaseSyncCommonService } from './shared/database-sync-common.service';
 import { BiostarApiService } from './shared/biostar-api.service';
 
+/** The datetime format BioStar's CSV import accepts. */
+const BIOSTAR_DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSS';
+
 @Injectable()
 export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   private readonly logger = new Logger(DatabaseSyncDasmaPathService.name);
@@ -99,6 +102,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     const totalCardCleared = 0;
     let totalRateLimitHits = 0;
     let maxLastModified = state.lastModifiedCursor || '0';
+    /** Users BioStar listed but whose detail could not be fetched. */
+    const failedUserIds: string[] = [];
+    /** True when the per-run candidate cap, not exhaustion, ended the loop. */
+    let endedOnCap = false;
 
     const limit = 500;
     const useIncremental = !!state.lastSuccessAt && !!state.lastModifiedCursor;
@@ -154,6 +161,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           totalCandidates + candidates.length > maxCandidates
         ) {
           const take = maxCandidates - totalCandidates;
+          // Flag the truncation here rather than at the loop's cap-break: the
+          // break below is unreachable whenever `offset` (which steps by the
+          // page size) passes `total` first, yet candidates were still dropped.
+          if (take < candidates.length) {
+            endedOnCap = true;
+          }
           candidates = candidates.slice(0, take);
         }
         totalCandidates += candidates.length;
@@ -164,7 +177,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
         for (const u of rows) {
           const lm = String(u.last_modified ?? '0');
-          if (lm > maxLastModified) maxLastModified = lm;
+          if (this.isLaterCursor(lm, maxLastModified)) maxLastModified = lm;
         }
 
         try {
@@ -200,6 +213,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           for (const { userId, detail } of results) {
             if (!detail) {
               totalFailed++;
+              // Name who was lost. Counting failures told nobody which users
+              // were missing from PostgreSQL afterwards.
+              failedUserIds.push(String(userId));
               continue;
             }
             totalDetailFetched++;
@@ -305,12 +321,38 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         offset += limit;
 
         if (rows.length === 0 || (total > 0 && offset >= total)) break;
-        if (maxCandidates > 0 && totalCandidates >= maxCandidates) break;
+        if (maxCandidates > 0 && totalCandidates >= maxCandidates) {
+          endedOnCap = true;
+          break;
+        }
       } while (true);
 
-      state.lastSuccessAt = new Date();
-      state.lastError = null;
-      state.lastModifiedCursor = maxLastModified;
+      // A run only counts as successful when it actually saw everything it was
+      // supposed to see. Marking a truncated run successful advances the
+      // incremental cursor past users that were never fetched, and no later
+      // run ever goes back for them.
+      const incompleteReasons: string[] = [];
+      if (endedOnCap) {
+        incompleteReasons.push(
+          `stopped early at the BIOSTAR_MAX_CANDIDATES_PER_RUN cap of ${maxCandidates}`,
+        );
+      }
+      if (failedUserIds.length > 0) {
+        incompleteReasons.push(
+          `${failedUserIds.length} detail fetch(es) failed: ${failedUserIds.slice(0, 20).join(', ')}${failedUserIds.length > 20 ? ' …' : ''}`,
+        );
+      }
+
+      if (incompleteReasons.length === 0) {
+        state.lastSuccessAt = new Date();
+        state.lastError = null;
+        state.lastModifiedCursor = maxLastModified;
+      } else {
+        // Leave lastSuccessAt and the cursor where they were so the next run
+        // re-covers the same ground instead of stepping over the gap.
+        state.lastError = `Run incomplete — ${incompleteReasons.join('; ')}`;
+        this.logger.warn(`[Dasma Biostar] ${state.lastError}`);
+      }
       await this.biostarSyncStateRepository.save(state);
 
       const durationMs = Date.now() - runStartMs;
@@ -473,6 +515,17 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       this.logger.log(
         `Table ${hasIsArchivedColumn ? 'has' : 'does not have'} IsArchived column`,
       );
+      // One timestamp for the whole run. Every activation stamped by this sync
+      // shares it, so a batch that straddles midnight cannot hand two people
+      // activated in the same run expiry dates a day apart.
+      const runNow = new Date();
+
+      // IDs that reached the CSV active but with no stored window, so the run
+      // had to fall back to a today-derived expiry. Large on the first run
+      // after deploy (nothing is backfilled yet), and MUST be empty on the
+      // second — a non-empty list there means the window is not persisting.
+      const expiryFallbackUsed: string[] = [];
+
       const batchSize = parseInt(process.env.SYNC_BATCH_SIZE) || 500;
       let totalProcessed = 0;
       let totalSkipped = 0;
@@ -565,8 +618,20 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             data.Unique_ID = incomingUniqueId;
           }
           const existing = existingMap.get(record.ID_Number);
+          // The activation window is decided by a state transition, not by
+          // comparing values, so it is resolved separately from
+          // buildChangedFields and merged in afterwards.
+          const incomingActive = this.commonService.isRecordActive(
+            record.Campus_Entry,
+            record.isArchived,
+          );
+          const activationWindow = this.commonService.resolveActivationWindow(
+            existing,
+            incomingActive,
+            runNow,
+          );
           if (!existing) {
-            toCreate.push(data);
+            toCreate.push({ ...data, ...(activationWindow ?? {}) });
           } else {
             const changedFields = this.buildChangedFields(existing, {
               Name: record.Name,
@@ -578,10 +643,11 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               isArchived: record.isArchived,
               group: groupValue ?? null,
             });
-            if (Object.keys(changedFields).length > 0) {
+            const merged = { ...changedFields, ...(activationWindow ?? {}) };
+            if (Object.keys(merged).length > 0) {
               toUpdate.push({
                 ID_Number: record.ID_Number,
-                changes: changedFields,
+                changes: merged,
               });
             }
           }
@@ -625,10 +691,27 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                             group: rec.group ?? null,
                           },
                         );
-                        if (Object.keys(changedFields).length > 0) {
+                        // A row that lands here was meant to be an insert, so
+                        // it carries a freshly-resolved window on `rec`. Re-run
+                        // the transition against the row that actually exists,
+                        // or this path would leave the window null forever.
+                        const activationWindow =
+                          this.commonService.resolveActivationWindow(
+                            existing,
+                            this.commonService.isRecordActive(
+                              rec.Campus_Entry ?? null,
+                              rec.isArchived ?? false,
+                            ),
+                            runNow,
+                          );
+                        const merged = {
+                          ...changedFields,
+                          ...(activationWindow ?? {}),
+                        };
+                        if (Object.keys(merged).length > 0) {
                           await this.studentRepository.update(
                             { ID_Number: rec.ID_Number as string },
-                            { ...changedFields, updatedAt: new Date() },
+                            { ...merged, updatedAt: new Date() },
                           );
                         }
                       }
@@ -689,12 +772,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         const skippedRecords = [];
 
         const currentDate = dayjs().tz('Asia/Manila').startOf('day');
-        const formattedStartDateEnabled = currentDate
-          .subtract(1, 'day')
-          .format('YYYY-MM-DD HH:mm:ss.SSS');
-        const formattedExpiryDateEnabled = currentDate
-          .add(10, 'year')
-          .format('YYYY-MM-DD HH:mm:ss.SSS');
+        // The DISABLED window stays pinned to today on purpose: an expired
+        // window is how this system deactivates someone, so it has to keep
+        // reading as expired no matter when they were deactivated.
         const formattedStartDateDisabled = currentDate
           .subtract(2, 'day')
           .format('YYYY-MM-DD HH:mm:ss.SSS');
@@ -759,9 +839,36 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
             const userTitle =
               (record.Group && String(record.Group).trim()) || 'Student';
-            const isDisabled =
-              record.Campus_Entry?.toString().toUpperCase() === 'N' ||
-              record.isArchived === true;
+            const isDisabled = !this.commonService.isRecordActive(
+              record.Campus_Entry,
+              record.isArchived,
+            );
+
+            // THE FIX. The enabled window now comes from what was stored at
+            // activation instead of being re-derived from today, so a record
+            // that has not changed exports the same dates on every run.
+            // `existingMap` was refreshed from the database a few lines above,
+            // so it already holds whatever this run just wrote.
+            const stored = existingMap.get(userId);
+            const storedStart = stored?.date_activated ?? null;
+            const storedExpiry = stored?.expiry_datetime ?? null;
+
+            if (!isDisabled && (!storedStart || !storedExpiry)) {
+              // Never ship a gate device an empty expiry. Fall back to the old
+              // behaviour and name the record so the gap is visible rather than
+              // silent — this list must be empty on the second run.
+              expiryFallbackUsed.push(userId);
+            }
+
+            const startDatetime = isDisabled
+              ? formattedStartDateDisabled
+              : (this.formatBiostarDatetime(storedStart) ??
+                currentDate.subtract(1, 'day').format(BIOSTAR_DATETIME_FORMAT));
+            const expiryDatetime = isDisabled
+              ? formattedExpiryDateDisabled
+              : (this.formatBiostarDatetime(storedExpiry) ??
+                currentDate.add(10, 'year').format(BIOSTAR_DATETIME_FORMAT));
+
             return {
               userId,
               rowBase: {
@@ -771,12 +878,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 user_title: userTitle,
                 user_group: 'All Users',
                 remarks: remarks,
-                start_datetime: isDisabled
-                  ? formattedStartDateDisabled
-                  : formattedStartDateEnabled,
-                expiry_datetime: isDisabled
-                  ? formattedExpiryDateDisabled
-                  : formattedExpiryDateEnabled,
+                start_datetime: startDatetime,
+                expiry_datetime: expiryDatetime,
                 original_campus_entry: String(record.Campus_Entry ?? ''),
               },
             };
@@ -1231,6 +1334,36 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       isArchived: isArchived,
       Group: record['Group'] ?? record.Group ?? null,
     };
+  }
+
+  /**
+   * Renders a stored timestamp in the format BioStar's CSV import expects,
+   * in Manila time to match the rest of this path. Returns null for a missing
+   * or unparseable value so callers can decide on a fallback rather than
+   * shipping "Invalid Date" to a gate device.
+   */
+  /**
+   * Is `candidate` a later cursor than `current`?
+   *
+   * BioStar's `last_modified` is a counter on some deployments and a timestamp
+   * on others. A plain string comparison — what this used to do — puts "9"
+   * above "10", which can park the saved cursor above records that were never
+   * processed, so every later incremental run skips them permanently. Compare
+   * numerically when both sides are numbers, lexicographically otherwise.
+   */
+  private isLaterCursor(candidate: string, current: string): boolean {
+    const a = Number(candidate);
+    const b = Number(current);
+    if (Number.isFinite(a) && Number.isFinite(b)) {
+      return a > b;
+    }
+    return candidate > current;
+  }
+
+  private formatBiostarDatetime(value: Date | null): string | null {
+    if (!value) return null;
+    const parsed = dayjs(value).tz('Asia/Manila');
+    return parsed.isValid() ? parsed.format(BIOSTAR_DATETIME_FORMAT) : null;
   }
 
   private normalizeUniqueIdValue(value: unknown): string | null {

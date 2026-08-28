@@ -4,6 +4,15 @@ import * as sql from 'mssql';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createObjectCsvWriter } from 'csv-writer';
+import * as dayjs from 'dayjs';
+
+import { Student } from '../../../students/entities/student.entity';
+
+/**
+ * How long a credential stays valid from its activation date. The tracker's
+ * worked example: activated 2026-08-26 -> expires 2036-08-26.
+ */
+const ACTIVATION_VALIDITY_YEARS = 10;
 
 /** Same column set as bulk upload CSV in `database-sync-dasma-path.service.ts`. */
 const DASMA_BULK_CSV_HEADERS = [
@@ -96,6 +105,76 @@ export class DatabaseSyncCommonService {
     const upper = trimmed.toUpperCase();
     if (['EMPLOYEE', 'STUDENT', 'AGENCY'].includes(upper)) return upper;
     return null;
+  }
+
+  /**
+   * Is this person admitted to campus right now?
+   *
+   * Mirrors the `isDisabled` test in `database-sync-dasma-path.service.ts`
+   * exactly — `Campus_Entry === 'N'` or archived means disabled — so the stored
+   * activation window and the exported CSV can never disagree about who counts
+   * as active.
+   */
+  isRecordActive(campusEntry: unknown, isArchived: boolean): boolean {
+    const deniedEntry = campusEntry?.toString().toUpperCase() === 'N';
+    return !deniedEntry && isArchived !== true;
+  }
+
+  /**
+   * Decides what activation/expiry fields to persist for one record, or null
+   * when nothing should change.
+   *
+   * This is the fix for "the expiry date is updated every day": when someone
+   * was already active and is still active, this returns null, so the stored
+   * window — and therefore the window exported to BioStar — stays exactly where
+   * it was. Re-activating a deactivated person restarts the 10 years from the
+   * new activation date.
+   *
+   * Pure: `now` is injected and never read from the clock inside.
+   */
+  resolveActivationWindow(
+    existing: Student | undefined,
+    incomingActive: boolean,
+    now: Date,
+  ): Partial<Student> | null {
+    const wasActive = existing
+      ? this.isRecordActive(existing.Campus_Entry, existing.isArchived)
+      : false;
+
+    if (!incomingActive) {
+      // Only the active -> inactive transition is worth recording. Someone who
+      // was already inactive and stays inactive must not have their
+      // deactivation date rewritten on every run — that would be the same
+      // drifting-date bug in a different column.
+      return wasActive ? { date_deactivated: now } : null;
+    }
+
+    if (!wasActive) {
+      return this.startActivationWindow(now);
+    }
+
+    // Already active and still active. Normally nothing changes — but a row
+    // that predates these columns has no window yet, so backfill it once,
+    // preserving a known activation date if one is already present.
+    if (!existing.date_activated || !existing.expiry_datetime) {
+      return this.startActivationWindow(existing.date_activated ?? now);
+    }
+
+    return null;
+  }
+
+  /**
+   * Builds the fields for a fresh window. Expiry uses dayjs so that a 29
+   * February activation clamps to 28 February rather than rolling into March.
+   */
+  private startActivationWindow(activatedAt: Date): Partial<Student> {
+    return {
+      date_activated: activatedAt,
+      expiry_datetime: dayjs(activatedAt)
+        .add(ACTIVATION_VALIDITY_YEARS, 'year')
+        .toDate(),
+      date_deactivated: null,
+    };
   }
 
   convertMilitaryTimeToCron(time: string): string {
