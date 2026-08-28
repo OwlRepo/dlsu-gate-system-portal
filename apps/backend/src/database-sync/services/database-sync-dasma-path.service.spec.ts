@@ -551,8 +551,7 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(csvRowFor('12100001', 1).remarks).toBe('');
     });
 
-    it('clears the remark in BioStar via PUT when the flag is on', async () => {
-      CONFIG.DASMA_CLEAR_REMARKS_VIA_API = 'true';
+    it('clears the remark in BioStar via PUT', async () => {
       sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
       setClock('2026-08-26T08:00:00+08:00');
       await service.executeDatabaseSync('run-1');
@@ -570,12 +569,12 @@ describe('DatabaseSyncDasmaPathService', () => {
       );
     });
 
-    it('does not touch BioStar when the flag is off (the default)', async () => {
+    it('does not PUT at all when no remark was removed', async () => {
       sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
       setClock('2026-08-26T08:00:00+08:00');
       await service.executeDatabaseSync('run-1');
 
-      sourceRows = [sourceRow({ Remarks: null })];
+      // Same remark, unchanged.
       setClock('2026-08-27T08:00:00+08:00');
       await service.executeDatabaseSync('run-2');
 
@@ -583,7 +582,6 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     it('only PUTs for remarks that were actually removed', async () => {
-      CONFIG.DASMA_CLEAR_REMARKS_VIA_API = 'true';
       sourceRows = [
         sourceRow({ ID: '12100001', Remarks: 'Owes library fee' }),
         sourceRow({ ID: '12100002', Remarks: 'Late return' }),
@@ -608,7 +606,6 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     it('does not abort the sync when clearing a remark fails', async () => {
-      CONFIG.DASMA_CLEAR_REMARKS_VIA_API = 'true';
       (biostarApi.clearUserCustomField as jest.Mock).mockResolvedValue(false);
 
       sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
@@ -622,6 +619,65 @@ describe('DatabaseSyncDasmaPathService', () => {
         { success: true },
       );
       expect(studentRepo.byId('12100001').Remarks).toBeNull();
+    });
+
+    // Bucket 2 (error) — safety.md invariant 2. Before the pending flag the
+    // retry trigger was `existing.Remarks`, which this run already nulled, so
+    // a failed PUT could never be re-attempted and PostgreSQL and the gate
+    // screen disagreed forever.
+    it('retries a failed remark clear on the next run', async () => {
+      (biostarApi.clearUserCustomField as jest.Mock).mockResolvedValue(false);
+
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      sourceRows = [sourceRow({ Remarks: null })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledTimes(1);
+      expect(studentRepo.byId('12100001').remarks_clear_pending).toBe(true);
+
+      // Run 3: nothing changed in the source, but the clear is still owed.
+      (biostarApi.clearUserCustomField as jest.Mock).mockResolvedValue(true);
+      setClock('2026-08-28T08:00:00+08:00');
+      await service.executeDatabaseSync('run-3');
+
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledTimes(2);
+      expect(studentRepo.byId('12100001').remarks_clear_pending).toBe(false);
+    });
+
+    it('stops retrying once BioStar confirms the clear', async () => {
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      sourceRows = [sourceRow({ Remarks: null })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+      expect(studentRepo.byId('12100001').remarks_clear_pending).toBe(false);
+
+      setClock('2026-08-28T08:00:00+08:00');
+      await service.executeDatabaseSync('run-3');
+
+      // One PUT total — the successful one. No re-attempt.
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledTimes(1);
+    });
+
+    // Bucket 5 (performance) — PUT count tracks removed remarks, never roster.
+    it('never PUTs for users whose remark did not change', async () => {
+      sourceRows = Array.from({ length: 25 }, (_, i) =>
+        sourceRow({ ID: `1210${String(i).padStart(4, '0')}`, Remarks: 'keep' }),
+      );
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      sourceRows[0].Remarks = null;
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -803,6 +859,122 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       expect(studentRepo.byId('12100001').isArchived).toBe(true);
     });
+  });
+
+  // =====================================================================
+  // CSV import response — Suprema documents Response.code as
+  //   "0" = all successful, "1" = partially successful,
+  //   "8" = all failed (delivered with HTTP 404)
+  // =====================================================================
+  describe('csv_import response handling', () => {
+    const diagnosticsWritten = () =>
+      (fsMock.writeFileSync as jest.Mock).mock.calls
+        .filter(([p]) => String(p).includes('diagnostics'))
+        .map(([, body]) => JSON.parse(String(body)));
+
+    /** Makes csv_import answer with the given body; attachments still succeed. */
+    const importResponds = (body: unknown) => {
+      (axios.post as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/api/attachments')) {
+          return { data: { filename: 'fake-upload.csv' } };
+        }
+        if (url.includes('/api/users/csv_import')) {
+          return { data: body };
+        }
+        return { data: {} };
+      });
+    };
+
+    // Bucket 1 — happy path.
+    it('records a clean import when code is "0"', async () => {
+      importResponds({ Response: { code: '0' } });
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      const diag = diagnosticsWritten().at(-1);
+      expect(diag.csvImport[0]).toMatchObject({
+        responseCode: '0',
+        outcome: 'success',
+      });
+    });
+
+    // Bucket 3 — edge. Partial failure WITHOUT the row collection used to fall
+    // through and be logged as uploaded successfully.
+    it('records a partial import when code is "1" even with no CsvRowCollection', async () => {
+      importResponds({ Response: { code: '1' } });
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      const diag = diagnosticsWritten().at(-1);
+      expect(diag.csvImport[0]).toMatchObject({
+        responseCode: '1',
+        outcome: 'partial',
+      });
+    });
+
+    it('counts the failed rows when code is "1" and CsvRowCollection is present', async () => {
+      importResponds({
+        Response: { code: '1' },
+        CsvRowCollection: { rows: [{ row: 2 }, { row: 7 }] },
+      });
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(diagnosticsWritten().at(-1).csvImport[0]).toMatchObject({
+        responseCode: '1',
+        outcome: 'partial',
+        partialFailureRows: 2,
+      });
+    });
+
+    // Bucket 4 — rare/boundary. `undefined !== '0'` used to log "successful".
+    it('treats a missing Response.code as a failure, not a success', async () => {
+      importResponds({});
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(diagnosticsWritten().at(-1).csvImport[0]).toMatchObject({
+        outcome: 'failed',
+      });
+    });
+
+    it('treats an undocumented response code as a failure', async () => {
+      importResponds({ Response: { code: '99' } });
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(diagnosticsWritten().at(-1).csvImport[0]).toMatchObject({
+        responseCode: '99',
+        outcome: 'failed',
+      });
+    });
+
+    // Bucket 2 — error. A transport failure is already retried; assert the
+    // retry count reaches diagnostics rather than being invisible.
+    it('records how many upload retries a batch needed', async () => {
+      let attempt = 0;
+      (axios.post as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/api/attachments')) {
+          attempt++;
+          if (attempt === 1) throw new Error('ECONNRESET');
+          return { data: { filename: 'fake-upload.csv' } };
+        }
+        if (url.includes('/api/users/csv_import')) {
+          return { data: { Response: { code: '0' } } };
+        }
+        return { data: {} };
+      });
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(diagnosticsWritten().at(-1).csvImport[0].retriesUsed).toBe(1);
+    }, 15000);
   });
 
   // =====================================================================

@@ -65,6 +65,22 @@ export class Student {
   @Column({ name: 'expiry_datetime', type: 'timestamp', nullable: true })
   expiry_datetime: Date | null;
 
+  /**
+   * This person's remark was removed in the source view but BioStar has not
+   * confirmed the clear yet.
+   *
+   * Clearing a remark needs a per-user PUT (BioStar's CSV import ignores a
+   * blank cell). Without this flag a failed PUT could never be retried — the
+   * retry trigger is the old `Remarks` value, and PostgreSQL clears it in the
+   * same run — leaving PostgreSQL and the gate screen permanently disagreeing.
+   */
+  @Column({
+    name: 'remarks_clear_pending',
+    type: 'boolean',
+    default: false,
+  })
+  remarks_clear_pending: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

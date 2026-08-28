@@ -595,6 +595,21 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // explicit BioStar PUT; the CSV cannot clear a custom field.
       const remarksClearedIds: string[] = [];
 
+      // Per-batch csv_import outcome, so a partial or unexpected response is
+      // visible in the diagnostics file rather than only in the logs.
+      const csvImportOutcomes: Array<{
+        batchNumber: number;
+        responseCode: string | null;
+        outcome: 'success' | 'partial' | 'failed';
+        partialFailureRows: number;
+        retriesUsed: number;
+      }> = [];
+
+      // Evidence for the deferred changed-only-export decision: how much of
+      // each run is re-sending rows that did not change.
+      let rowsChanged = 0;
+      let rowsUnchanged = 0;
+
       const batchSize = parseInt(process.env.SYNC_BATCH_SIZE) || 500;
       let totalProcessed = 0;
       let totalSkipped = 0;
@@ -715,14 +730,22 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             // A remark that went from a value to nothing needs a per-user PUT:
             // an empty CSV cell is ignored by BioStar's import, so the CSV
             // alone can never clear it.
-            if (
+            const remarkWasRemoved =
               'Remarks' in changedFields &&
               !changedFields.Remarks &&
-              existing.Remarks
-            ) {
+              !!existing.Remarks;
+            if (remarkWasRemoved) {
               remarksClearedIds.push(record.ID_Number);
             }
-            const merged = { ...changedFields, ...(activationWindow ?? {}) };
+            const merged = {
+              ...changedFields,
+              ...(activationWindow ?? {}),
+              // Persist the intent in the same write that nulls Remarks. The
+              // transition itself cannot be re-derived next run — `existing`
+              // will already be null — so without this a failed PUT could
+              // never be retried.
+              ...(remarkWasRemoved ? { remarks_clear_pending: true } : {}),
+            };
             if (Object.keys(merged).length > 0) {
               toUpdate.push({
                 ID_Number: record.ID_Number,
@@ -829,6 +852,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         this.logger.log(
           `[Batch ${batchNumber}] Synced ${toCreate.length + toUpdate.length} records (${batchRecordsWithPhoto.length - (toCreate.length + toUpdate.length)} unchanged)`,
         );
+        rowsChanged += toCreate.length + toUpdate.length;
+        rowsUnchanged +=
+          batchRecordsWithPhoto.length - (toCreate.length + toUpdate.length);
 
         const refreshedStudents = await this.commonService.executeWithRetry(
           () =>
@@ -1126,9 +1152,47 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 }),
               },
             );
-            if (importResponse.data?.Response?.code === '1') {
+            // Suprema documents Response.code for bulk operations as:
+            //   "0" = all edits were successful
+            //   "1" = partially successful
+            //   "8" = all failed (delivered with HTTP 404, so axios rejects
+            //         and the catch below retries it — it never lands here)
+            // Anything else is undocumented and must not be read as success.
+            const responseCode = importResponse.data?.Response?.code;
+            const outcome: 'success' | 'partial' | 'failed' =
+              responseCode === '0'
+                ? 'success'
+                : responseCode === '1'
+                  ? 'partial'
+                  : 'failed';
+            csvImportOutcomes.push({
+              batchNumber,
+              responseCode: responseCode ?? null,
+              outcome,
+              partialFailureRows:
+                importResponse.data?.CsvRowCollection?.rows?.length ?? 0,
+              retriesUsed: 3 - retries,
+            });
+
+            if (outcome === 'success') {
+              this.logger.log(
+                `[Batch ${batchNumber}] CSV import successful — all ${formattedRecords.length} records processed`,
+              );
+            } else if (outcome === 'failed') {
+              this.logger.error(
+                `[Batch ${batchNumber}] CSV import returned an unexpected Response.code=${responseCode ?? '(absent)'} — NOT treating this as success`,
+              );
+              failedRecordsAll.push({
+                batchNumber,
+                error: `Unexpected csv_import Response.code: ${responseCode ?? '(absent)'}`,
+                importResponse: importResponse.data,
+              });
+            }
+
+            if (outcome === 'partial') {
+              const failedRows =
+                importResponse.data?.CsvRowCollection?.rows ?? [];
               if (importResponse.data.CsvRowCollection) {
-                const failedRows = importResponse.data.CsvRowCollection.rows;
                 if (importResponse.data.File?.uri) {
                   const errorFileUri = importResponse.data.File.uri;
                   this.logger.warn(
@@ -1188,15 +1252,22 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                     importResponse: importResponse.data,
                   });
                 }
-                break;
+              } else {
+                // Partial per Response.code but no row detail. Previously this
+                // fell through and was logged as uploaded successfully.
+                this.logger.warn(
+                  `[Batch ${batchNumber}] Partial CSV import reported (code=1) with no CsvRowCollection — failed rows unknown`,
+                );
+                failedRecordsAll.push({
+                  batchNumber,
+                  error:
+                    'Partial import reported (code=1) with no CsvRowCollection',
+                  importResponse: importResponse.data,
+                });
               }
-            } else if (importResponse.data?.Response?.code !== '0') {
-              this.logger.log(
-                `[Batch ${batchNumber}] CSV import successful - All ${formattedRecords.length} records processed`,
-              );
             }
             this.logger.log(
-              `[Batch ${batchNumber}] CSV file uploaded successfully`,
+              `[Batch ${batchNumber}] CSV upload finished with outcome=${outcome}`,
             );
             break;
           } catch (error) {
@@ -1285,7 +1356,27 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
       this.logger.log('All batches processed, performing final cleanup...');
 
-      await this.clearRemovedRemarksInBiostar(remarksClearedIds);
+      // Everything owed: removed this run, plus anything a previous run failed
+      // to clear. Retrying from persisted state is what keeps PostgreSQL and
+      // BioStar from drifting apart permanently (core/safety.md invariant 2).
+      const pendingRows = await this.studentRepository.find({
+        where: { remarks_clear_pending: true },
+        select: ['ID_Number'],
+      });
+      const carriedOver = pendingRows
+        .map((r) => r.ID_Number)
+        .filter((id) => !remarksClearedIds.includes(id));
+      const remarkClearResult = await this.clearRemovedRemarksInBiostar([
+        ...remarksClearedIds,
+        ...carriedOver,
+      ]);
+
+      if (remarkClearResult.succeeded.length > 0) {
+        await this.studentRepository.update(
+          { ID_Number: In(remarkClearResult.succeeded) },
+          { remarks_clear_pending: false },
+        );
+      }
 
       let archivedByReconciliation = 0;
       if (seenIdsFromSource.size > 0) {
@@ -1342,10 +1433,21 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         // MUST be empty on every run, including the first after deploy.
         // Anything here means the stored expiry window is not persisting.
         expiryFallbackUsed: this.commonService.capIds(expiryFallbackUsed),
-        remarksClearedInPostgres: this.commonService.capIds(remarksClearedIds),
-        remarksClearedInBiostar:
-          (this.configService.get('DASMA_CLEAR_REMARKS_VIA_API') ?? 'false') ===
-          'true',
+
+        // How much of this run re-sent rows that had not changed. This is the
+        // evidence for whether a changed-only CSV export is worth its risk.
+        rowsChanged,
+        rowsUnchanged,
+
+        csvImport: csvImportOutcomes,
+
+        remarks: {
+          clearedInPostgres: this.commonService.capIds(remarksClearedIds),
+          pendingCarriedOver: this.commonService.capIds(carriedOver),
+          attempted: remarkClearResult.attempted,
+          succeeded: remarkClearResult.succeeded.length,
+          failedIds: this.commonService.capIds(remarkClearResult.failed),
+        },
       });
 
       return {
@@ -1460,22 +1562,20 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
    * run. Only those users are touched, so the call count equals the number of
    * remarks actually removed — typically a handful, never the roster.
    *
-   * Gated on DASMA_CLEAR_REMARKS_VIA_API (default OFF). This is the only PUT
-   * this codebase makes against production access-control hardware, so it is
-   * opt-in and must be proven on staging first.
+   * This is the only PUT this codebase makes against BioStar. It is safe to
+   * run unconditionally because `clearUserCustomField` echoes back the exact
+   * `user_custom_fields` array BioStar returned with one `item` blanked — it
+   * never reconstructs the array, so fields it does not target (Lived Name,
+   * Gate) are handed back untouched.
+   *
+   * Returns the IDs that failed, so the caller can leave their pending flag
+   * set and retry them on the next run.
    */
-  private async clearRemovedRemarksInBiostar(userIds: string[]): Promise<void> {
-    if (userIds.length === 0) return;
-
-    const enabled =
-      (this.configService.get('DASMA_CLEAR_REMARKS_VIA_API') ?? 'false') ===
-      'true';
-    if (!enabled) {
-      this.logger.log(
-        `[Dasma] ${userIds.length} remark(s) were cleared in PostgreSQL but NOT in BioStar ` +
-          `(DASMA_CLEAR_REMARKS_VIA_API is off). Affected IDs: ${userIds.slice(0, 20).join(', ')}${userIds.length > 20 ? ' …' : ''}`,
-      );
-      return;
+  private async clearRemovedRemarksInBiostar(
+    userIds: string[],
+  ): Promise<{ attempted: number; succeeded: string[]; failed: string[] }> {
+    if (userIds.length === 0) {
+      return { attempted: 0, succeeded: [], failed: [] };
     }
 
     const { token, sessionId } = await this.biostarApiService.getApiToken();
@@ -1500,10 +1600,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     );
 
     const failed = userIds.filter((_, i) => !results[i]);
+    const succeeded = userIds.filter((_, i) => !!results[i]);
     this.logger.log(
-      `[Dasma] Remark clear: attempted=${userIds.length}, succeeded=${userIds.length - failed.length}, failed=${failed.length}` +
+      `[Dasma] Remark clear: attempted=${userIds.length}, succeeded=${succeeded.length}, failed=${failed.length}` +
         (failed.length ? `, failedIds=${failed.slice(0, 20).join(', ')}` : ''),
     );
+    return { attempted: userIds.length, succeeded, failed };
   }
 
   /** Reports how the cursor was compared, so the log shows which rule applied. */
