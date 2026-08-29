@@ -1,4 +1,20 @@
 @echo off
+rem Self-elevate: NSSM install/start needs Administrator. deploy-monorepo.bat
+rem already runs elevated when it calls this file, so this check passes
+rem straight through with no relaunch and no output - safe for that
+rem programmatic, output-redirected call. Standalone double-click use (repair/
+rem reinstall without a full deploy) is what this guard actually protects.
+net session >nul 2>&1
+if %errorlevel% equ 0 goto :elevated
+echo [INFO] Administrator access is required. Approve the prompt to continue.
+powershell -NoProfile -Command "Start-Process cmd -ArgumentList '/k','\"%~f0\"' -Verb RunAs"
+if errorlevel 1 (
+  echo [ERROR] Could not get Administrator access.
+  echo [ERROR] Right-click this file and choose "Run as administrator".
+  pause
+)
+exit /b 0
+:elevated
 setlocal enabledelayedexpansion
 cd /d "%~dp0\.."
 set "PROJECT_ROOT=%cd%"

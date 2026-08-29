@@ -55,6 +55,18 @@ if %errorlevel% equ 0 (
 )
 call "%~dp0lib\logging.bat" INFO "Service stop step finished"
 
+rem NSSM only tree-kills the "cmd /c run-monorepo.cmd" process it launched
+rem directly. run-monorepo.cmd starts backend/frontend via "start /b cmd /c
+rem node ...", and those grandchildren can escape NSSM's job object on
+rem Windows - "net stop" then reports success while an orphaned node.exe
+rem keeps holding port 3000/10580, and every re-deploy dies at preflight with
+rem "Port already in use". Force-free the ports directly instead of trusting
+rem the service stop alone.
+call "%~dp0lib\logging.bat" INFO "Force-freeing DLSU ports"
+powershell -NoProfile -Command "foreach($p in 10580,3000){ Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { try { Stop-Process -Id $_ -Force -ErrorAction Stop } catch {} } }" >nul 2>&1
+timeout /t 2 /nobreak >nul
+call "%~dp0lib\logging.bat" INFO "Port free step finished"
+
 call "%~dp0lib\preflight.bat" "%PROJECT_ROOT%" "%LOG_DIR%"
 if %errorlevel% neq 0 call "%~dp0lib\errors.bat" %errorlevel% "preflight" "A prerequisite is missing - the lines below name it" "prereq.log" & exit /b %errorlevel%
 

@@ -30,10 +30,16 @@ if %errorlevel% neq 0 (
   echo [ERROR] Must run as Administrator>>"%MAIN_LOG%"
   endlocal & exit /b 10
 )
+rem Nested \" inside a parenthesized ( ) block trips cmd's block parser (see
+rem update-monorepo.bat's elevation comment) - so the PID lookup below is a
+rem plain, unparenthesized statement, never nested inside the "port busy" if.
 for %%p in (10580 3000) do (
-  powershell -NoProfile -Command "$conn=Get-NetTCPConnection -LocalPort %%p -State Listen -ErrorAction SilentlyContinue; if($conn){exit 1}else{exit 0}" >nul 2>&1
-  if !errorlevel! neq 0 (
-    echo [ERROR] Port %%p already in use>>"%MAIN_LOG%"
+  set "PORT_OWNER="
+  powershell -NoProfile -Command "$c=Get-NetTCPConnection -LocalPort %%p -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if(-not $c){exit 0}; $proc=Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue; if($proc){Write-Output ($proc.ProcessName + ' PID ' + $proc.Id)}else{Write-Output ('PID ' + $c.OwningProcess)}; exit 1" >"%TEMP%\dlsu_port_owner.txt" 2>nul
+  if not !errorlevel! equ 0 set /p PORT_OWNER=<"%TEMP%\dlsu_port_owner.txt"
+  del "%TEMP%\dlsu_port_owner.txt" >nul 2>&1
+  if defined PORT_OWNER (
+    echo [ERROR] Port %%p already in use by !PORT_OWNER!>>"%MAIN_LOG%"
     endlocal & exit /b 20
   )
 )
