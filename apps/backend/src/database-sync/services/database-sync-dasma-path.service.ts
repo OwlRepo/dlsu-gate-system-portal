@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { In } from 'typeorm';
+import { In, IsNull } from 'typeorm';
 import * as sql from 'mssql';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -105,6 +105,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     let maxLastModified = state.lastModifiedCursor || '0';
     /** Users BioStar listed but whose detail could not be fetched. */
     const failedUserIds: string[] = [];
+    /** Stale remarks spotted in BioStar that PostgreSQL no longer has. */
+    const remarksBackfilled: string[] = [];
     /** True when the per-run candidate cap, not exhaustion, ended the loop. */
     let endedOnCap = false;
     /** Every user_id BioStar listed, for the reconciliation below. */
@@ -266,7 +268,28 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               where: { ID_Number: cleanUserId },
             });
 
+            // What BioStar currently shows on the gate screen for this person.
+            const biostarRemark = this.extractBiostarCustomField(
+              detail,
+              'Remarks',
+            );
+
             if (existingStudent) {
+              // Reconcile the remark while we already have the detail in hand.
+              //
+              // A remark removed upstream BEFORE the clearing fix shipped left
+              // no trace to act on: PostgreSQL was blanked in that same run, so
+              // the removal can never be observed again and nothing would
+              // revisit the row. BioStar keeps showing the old text forever.
+              // Comparing here costs nothing — this payload is already fetched.
+              //
+              // Only "PostgreSQL says nothing, BioStar says something" counts.
+              // A remark PostgreSQL still holds is not drift: the roster sync
+              // owns its text, and clearing it here would delete a live remark.
+              const postgresRemark = existingStudent.Remarks?.trim() || null;
+              const remarkNeedsClearing =
+                postgresRemark === null && !!biostarRemark;
+
               const photoChanged = photo !== existingStudent.Photo;
               const existingUnique =
                 existingStudent.Unique_ID != null
@@ -281,11 +304,20 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 photoChanged ||
                 uniqueIdChanged ||
                 nameChanged ||
-                isArchivedChanged
+                isArchivedChanged ||
+                remarkNeedsClearing ||
+                !existingStudent.remarks_checked_at
               ) {
                 const updatePayload: Partial<Student> = {
                   updatedAt: new Date(),
+                  // Stamped every time we see this person's detail, so the
+                  // bounded sweep can tell who still needs looking at.
+                  remarks_checked_at: new Date(),
                 };
+                if (remarkNeedsClearing) {
+                  updatePayload.remarks_clear_pending = true;
+                  remarksBackfilled.push(cleanUserId);
+                }
                 if (photoChanged) {
                   updatePayload.Photo = photo;
                 }
@@ -417,6 +449,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         detailFetched: totalDetailFetched,
         detailHadPhoto: totalDetailWithPhoto,
         detailHadNoPhoto: totalDetailFetched - totalDetailWithPhoto,
+        // Stale remarks found in BioStar that PostgreSQL no longer has, and so
+        // queued for clearing. Costs no extra BioStar call — the detail is
+        // already fetched. Expect a burst on the first runs after deploy while
+        // the pre-fix backlog is worked off, then effectively zero.
+        remarksBackfilledFromBiostar:
+          this.commonService.capIds(remarksBackfilled),
         created: totalCreated,
         updated: totalUpdated,
         skippedUnchanged: totalSkipped,
@@ -462,6 +500,107 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       }
     }
     return false;
+  }
+
+  /**
+   * Looks at a bounded slice of students never reconciled against BioStar and
+   * flags any whose remark BioStar still shows but PostgreSQL no longer has.
+   *
+   * This exists only to drain the backlog that predates remark clearing: those
+   * rows were blanked in PostgreSQL without BioStar ever being told, and the
+   * removal cannot recur, so nothing else would ever revisit them.
+   *
+   * Deliberately finite. It selects only rows with no `remarks_checked_at`, so
+   * once the roster has been worked through it selects nothing and costs
+   * nothing — rather than re-scanning the same people forever.
+   *
+   * Never throws: a sweep is a repair job, not a reason to fail a roster sync.
+   */
+  private async sweepUncheckedRemarks(jobName: string): Promise<number> {
+    const SWEEP_SIZE = 500;
+    try {
+      const unchecked = await this.studentRepository.find({
+        where: { remarks_checked_at: IsNull(), isArchived: false },
+        select: ['ID_Number', 'Remarks'],
+        take: SWEEP_SIZE,
+      });
+      if (unchecked.length === 0) return 0;
+
+      const { token, sessionId } = await this.biostarApiService.getApiToken();
+      const rateLimitTracker = { count: 0 };
+      const flagged: string[] = [];
+      const checkedAt = new Date();
+
+      for (const student of unchecked) {
+        const detail =
+          await this.biostarApiService.fetchBiostarUserDetailWithRetry(
+            student.ID_Number,
+            token,
+            sessionId,
+            3,
+            rateLimitTracker,
+          );
+        // Leave the stamp off on a failed lookup so the row is retried rather
+        // than quietly written off as checked.
+        if (!detail) continue;
+
+        const biostarRemark = this.extractBiostarCustomField(detail, 'Remarks');
+        const postgresRemark = student.Remarks?.trim() || null;
+        const needsClearing = postgresRemark === null && !!biostarRemark;
+
+        await this.studentRepository.update(
+          { ID_Number: student.ID_Number },
+          {
+            remarks_checked_at: checkedAt,
+            ...(needsClearing ? { remarks_clear_pending: true } : {}),
+          },
+        );
+        if (needsClearing) flagged.push(student.ID_Number);
+      }
+
+      this.logger.log(
+        `[${jobName}] Remark sweep: checked ${unchecked.length}, flagged ${flagged.length} stale remark(s) for clearing`,
+      );
+      return unchecked.length;
+    } catch (error) {
+      this.logger.warn(
+        `[${jobName}] Remark sweep skipped: ${(error as Error)?.message ?? String(error)}`,
+      );
+      return 0;
+    }
+  }
+
+  /**
+   * Reads one custom field's value off a BioStar user detail payload.
+   *
+   * The `{ custom_field: { name }, item }` shape is not guesswork: it is what
+   * the production dashboards read off the live server
+   * (`apps/portal-web/src/app/dashboard/dashboard.tsx`), matching on
+   * `field.custom_field.name === "Remarks"`.
+   *
+   * Returns null for absent, blank or whitespace-only, so "no remark" is one
+   * answer rather than three.
+   */
+  private extractBiostarCustomField(
+    detail: Record<string, unknown>,
+    fieldName: string,
+  ): string | null {
+    const userObj = (detail.User as Record<string, unknown>) ?? detail;
+    const fields =
+      (detail.user_custom_fields as unknown[]) ??
+      (userObj?.user_custom_fields as unknown[]);
+    if (!Array.isArray(fields)) return null;
+
+    const match = fields.find(
+      (entry) =>
+        (entry as { custom_field?: { name?: string } })?.custom_field?.name ===
+        fieldName,
+    ) as { item?: unknown } | undefined;
+
+    const value = match?.item;
+    if (value === null || value === undefined) return null;
+    const text = String(value).trim();
+    return text === '' ? null : text;
   }
 
   private extractBiostarCardValue(
@@ -1546,9 +1685,22 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
       this.logger.log('All batches processed, performing final cleanup...');
 
-      // Everything owed: removed this run, plus anything a previous run failed
-      // to clear. Retrying from persisted state is what keeps PostgreSQL and
-      // BioStar from drifting apart permanently (core/safety.md invariant 2).
+      // Drain the pre-fix backlog, a bounded slice at a time.
+      //
+      // The BioStar pull reconciles remarks for free, but only for users it
+      // visits — those with a photo or a card, in group 1. Anyone else whose
+      // remark was removed before the clearing fix shipped would never be
+      // looked at again. This sweep picks up only rows never checked, so it
+      // works through that remainder over a handful of runs and then stops on
+      // its own: once every row carries a `remarks_checked_at`, it selects
+      // nothing. Removals from here on are caught by the normal transition,
+      // which no longer needs sweeping.
+      const sweptThisRun = await this.sweepUncheckedRemarks(jobName);
+
+      // Everything owed: removed this run, anything a previous run failed to
+      // clear, and anything the reconciliation or sweep just flagged. Retrying
+      // from persisted state is what keeps PostgreSQL and BioStar from drifting
+      // apart permanently (core/safety.md invariant 2).
       const pendingRows = await this.studentRepository.find({
         where: { remarks_clear_pending: true },
         select: ['ID_Number'],
@@ -1656,6 +1808,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           attempted: remarkClearResult.attempted,
           succeeded: remarkClearResult.succeeded.length,
           failedIds: this.commonService.capIds(remarkClearResult.failed),
+          // Backlog drain. Falls to 0 once every row has been checked once —
+          // if it stays at the sweep size, the roster is not being worked
+          // through and the stamp is not sticking.
+          sweptThisRun,
         },
       });
 

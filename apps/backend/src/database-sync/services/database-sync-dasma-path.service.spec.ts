@@ -110,6 +110,21 @@ describe('DatabaseSyncDasmaPathService', () => {
     private matches(where: Record<string, unknown>, row: Student): boolean {
       return Object.entries(where).every(([key, operand]) => {
         const actual = (row as unknown as Record<string, unknown>)[key];
+        // TypeORM FindOperators arrive as objects carrying their kind in
+        // `_type`. Only the two the sync actually uses are honoured; anything
+        // else must fail loudly rather than silently matching nothing.
+        if (operand && typeof operand === 'object' && '_type' in operand) {
+          const kind = (operand as { _type: string })._type;
+          if (kind === 'isNull') {
+            return actual === null || actual === undefined;
+          }
+          if (kind === 'in') {
+            return unwrapIn(operand).includes(actual as string);
+          }
+          throw new Error(
+            `FakeStudentRepository: unsupported operator ${kind}`,
+          );
+        }
         if (operand && typeof operand === 'object' && '_value' in operand) {
           return unwrapIn(operand).includes(actual as string);
         }
@@ -121,9 +136,14 @@ describe('DatabaseSyncDasmaPathService', () => {
       return { ...data } as Student;
     }
 
-    async find(options: { where?: Record<string, unknown> } = {}) {
-      if (!options.where) return [...this.rows];
-      return this.rows.filter((r) => this.matches(options.where, r));
+    async find(
+      options: { where?: Record<string, unknown>; take?: number } = {},
+    ) {
+      const matched = options.where
+        ? this.rows.filter((r) => this.matches(options.where, r))
+        : [...this.rows];
+      // `take` is load-bearing for the remark sweep, which is bounded per run.
+      return options.take ? matched.slice(0, options.take) : matched;
     }
 
     async findOne(options: { where: Record<string, unknown> }) {
@@ -842,6 +862,93 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(biostarState.lastModifiedCursor).toBe('2026-09-02T00:00:00Z');
     });
 
+    // ------------------------------------------------------------------
+    // Reconciling remarks for free
+    //
+    // A remark deleted from the source view BEFORE the clearing fix shipped
+    // can never be detected as a removal: PostgreSQL is already blank, so the
+    // transition cannot recur and nothing revisits the row. BioStar keeps
+    // showing the old text forever.
+    //
+    // This pull already fetches each candidate's full detail, and that payload
+    // carries `user_custom_fields`. Comparing the remark here costs no extra
+    // BioStar call at all.
+    // ------------------------------------------------------------------
+    const detailWithRemark = (userId: string, remark: string | null) =>
+      detail({
+        user_id: userId,
+        user_custom_fields: [
+          { custom_field: { name: 'Lived Name' }, item: 'Johnny' },
+          { custom_field: { name: 'Remarks' }, item: remark },
+        ],
+      });
+
+    it('flags a remark BioStar still holds that PostgreSQL no longer has', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Remarks: null,
+        remarks_clear_pending: false,
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ user_id: '12100001' })] }];
+      biostarDetails = {
+        '12100001': detailWithRemark('12100001', 'Owes library fee'),
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').remarks_clear_pending).toBe(true);
+    });
+
+    it('does not flag anything when both sides agree the remark is gone', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Remarks: null,
+        remarks_clear_pending: false,
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ user_id: '12100001' })] }];
+      biostarDetails = { '12100001': detailWithRemark('12100001', '') };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').remarks_clear_pending).toBe(false);
+    });
+
+    // A remark that still exists upstream is not drift — the roster sync owns
+    // updating its text, and clearing it here would delete a live remark.
+    it('does not flag a remark PostgreSQL still holds', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Remarks: 'Owes library fee',
+        remarks_clear_pending: false,
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ user_id: '12100001' })] }];
+      biostarDetails = {
+        '12100001': detailWithRemark('12100001', 'Owes library fee'),
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').remarks_clear_pending).toBe(false);
+    });
+
+    it('records that the remark was checked, so the sweep can skip it', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Remarks: null,
+        remarks_clear_pending: false,
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ user_id: '12100001' })] }];
+      biostarDetails = { '12100001': detailWithRemark('12100001', null) };
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').remarks_checked_at).toEqual(
+        new Date('2026-08-26T08:00:00+08:00'),
+      );
+    });
+
     // 6b — a run cut short by the cap used to still mark itself successful,
     // so the remainder was skipped forever on the next incremental run.
     it('does not mark a run successful when the per-run cap cut it short', async () => {
@@ -1381,7 +1488,12 @@ describe('DatabaseSyncDasmaPathService', () => {
       await service.executeDatabaseSync('run-1');
       await studentRepo.update(
         { ID_Number: '12100001' },
-        { Unique_ID: '1234567890' },
+        {
+          Unique_ID: '1234567890',
+          // Marked already reconciled so the remark sweep — a different caller
+          // of the same BioStar method — cannot be mistaken for a CSN lookup.
+          remarks_checked_at: new Date('2026-08-26T08:00:00+08:00'),
+        },
       );
 
       (biostarApi.fetchBiostarUserDetailWithRetry as jest.Mock).mockClear();
@@ -1391,6 +1503,82 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       expect(biostarApi.fetchBiostarUserDetailWithRetry).not.toHaveBeenCalled();
       expect(csvRowFor('12100001').csn).toBe('1234567890');
+    });
+  });
+
+  // =====================================================================
+  // Draining the pre-fix remark backlog
+  //
+  // Remarks removed before clearing existed were blanked in PostgreSQL without
+  // BioStar ever being told. That removal cannot recur, so nothing would ever
+  // revisit those rows. The BioStar pull reconciles the ones it visits for
+  // free; this sweep picks up the remainder — and stops once it has.
+  // =====================================================================
+  describe('remark backlog sweep', () => {
+    const detailWithRemark = (userId: string, remark: string | null) => ({
+      User: {
+        user_id: userId,
+        user_custom_fields: [
+          { custom_field: { name: 'Remarks' }, item: remark },
+        ],
+      },
+    });
+
+    it('flags a stale remark on a student nobody has checked', async () => {
+      biostarDetails['12100001'] = detailWithRemark(
+        '12100001',
+        'Owes library fee',
+      );
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledWith(
+        '12100001',
+        'Remarks',
+        expect.any(String),
+        expect.any(String),
+      );
+    });
+
+    it('stamps the row so it is never swept twice', async () => {
+      biostarDetails['12100001'] = detailWithRemark('12100001', null);
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      expect(studentRepo.byId('12100001').remarks_checked_at).toEqual(
+        new Date('2026-08-26T08:00:00+08:00'),
+      );
+
+      // Second run: already stamped, so the sweep must not look again.
+      (biostarApi.fetchBiostarUserDetailWithRetry as jest.Mock).mockClear();
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.fetchBiostarUserDetailWithRetry).not.toHaveBeenCalled();
+    });
+
+    it('leaves a row unstamped when BioStar could not be reached', async () => {
+      biostarDetails['12100001'] = null;
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      // No stamp means it is retried rather than written off as checked.
+      expect(studentRepo.byId('12100001').remarks_checked_at).toBeUndefined();
+    });
+
+    it('does not flag a remark that PostgreSQL still holds', async () => {
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      biostarDetails['12100001'] = detailWithRemark(
+        '12100001',
+        'Owes library fee',
+      );
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(biostarApi.clearUserCustomField).not.toHaveBeenCalled();
     });
   });
 
