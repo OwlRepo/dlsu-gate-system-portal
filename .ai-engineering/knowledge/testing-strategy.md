@@ -56,7 +56,7 @@ Commands must be verified from package scripts or repo docs before being listed 
 | Dev server | `bun run dev` / `npm run dev` | Runs migrations automatically on boot (`main.ts` → `AppDataSource`). |
 | Type checking | `bun run check-types` | `tsc --noEmit`. |
 | Linting | `bun run lint` | `eslint --fix`. |
-| Unit tests | `bun run test` / `npm test` | Jest, co-located `*.spec.ts` files under `apps/backend/src`. Only 11 spec files exist, covering `admin`, `app`, `employee`, `login`, `reports`. |
+| Unit tests | `bun run test` / `npm test` | Jest, co-located `*.spec.ts` files under `apps/backend/src`. 20 spec files, 202 tests. Run with `TZ=Asia/Manila` — the Dasma specs pin the clock and assert Manila-anchored datetimes. |
 | Coverage | `bun run test:cov` | Jest coverage report. |
 | E2E tests | `bun run test:e2e` | `jest --config test/jest-e2e.json`. Only one spec (`test/app.e2e-spec.ts`) exists and it expects `GET /` → `"Hello World!"`, but `AppController` has no routes — **this test is likely stale/failing; verify before relying on it as a regression gate.** |
 | Migrations | `bun run migration:generate` / `migration:run` / `migration:revert` | Uses `src/config/data-source.ts` (the canonical DataSource — see `../knowledge/architecture.md` for the 3 inconsistent DataSource configs). |
@@ -69,26 +69,24 @@ Commands must be verified from package scripts or repo docs before being listed 
 | Dev server | `bun run dev` | Next.js dev server. |
 | Type checking | `bun run check-types` | Assumed consistent with backend convention (`tsc --noEmit`) — confirm exact script if precision matters. |
 | Linting | `bun run lint` | ESLint. |
-| Unit/component tests | `bun run test` | `vitest run`, targets `apps/portal-web/src/**/*.test.{ts,tsx}`. Only 9 test files exist, ALL added in one commit, ALL scoped to the campus-mode/access-status feature area (see Known Test Coverage Gaps below). |
+| Unit/component tests | `bun run test` | `vitest run`, targets `apps/portal-web/src/**/*.test.{ts,tsx}`. 17 test files. |
 | Watch mode | `bun run test:watch` | Vitest watch mode. |
 | Coverage | `bun run test:coverage` | Vitest coverage report. |
 
 ## Known Test Coverage Gaps
 
-**Backend — zero unit tests exist for these modules** (verified: only `admin`, `app`, `employee`, `login`, `reports` have `*.spec.ts` files under `apps/backend/src`):
+**Backend — modules still without unit tests:**
 
-- `src/students/` (Students Roster)
 - `src/users/` (User Directory / bulk deactivate-reactivate)
 - `src/super-admin/` (Super Admin Accounts — includes the no-role-check `/register` endpoint)
 - `src/sync/` (mobile/offline pull)
-- `src/database-sync/` (external SQL Server + BioStar integration — highest-risk module in the repo)
-- `src/auth/` (JWT strategy, guards, token blacklist — includes the dev-mode super-admin bypass)
-- `src/health/`
 - `src/screensaver/`
+
+No longer gaps: `src/database-sync/` now has four specs — the Dasma path, the shared common service, the BioStar API write path, and a CSV-bytes/volume spec that asserts the exported file byte-for-byte and pins how many overwrite imports a full roster costs. `src/students/`, `src/auth/` and `src/health/` are also covered.
 
 Additionally, `test/app.e2e-spec.ts` is the only e2e spec and is likely stale (expects a `GET /` route that no longer exists).
 
-**Frontend — only the campus-mode/access-status feature area is covered.** The 9 existing Vitest files (`lib/access-status.test.ts`, `lib/campus-mode.test.ts`, `components/custom/CustomTable.test.tsx`, `components/dashboard/gate-access-stats.test.tsx`, `components/dashboard/live-data-table.test.tsx`, `components/employee-dashboard/EntriesLog.test.tsx`, `components/employee-dashboard/TurnstileGrid.test.tsx`, `components/reports/ReportsPageContainer.test.tsx`, `components/reports/ReportsTable.test.tsx`) were all added in a single commit. There are **no tests** for:
+**Frontend — 17 Vitest files.** Coverage is concentrated in the campus-mode/access-status area plus the dashboards and the synced-photo fallback (`lib/synced-photo.test.ts`, `lib/image-type.test.ts`). There are still **no tests** for:
 
 - Hooks (`src/hooks/useReportSocket.tsx`, etc.)
 - `src/middleware.ts` (route protection — including the known dead `"dashboard"` matcher-string bug)
