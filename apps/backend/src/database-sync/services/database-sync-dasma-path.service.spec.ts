@@ -1377,6 +1377,64 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(importCalls()).toHaveLength(0);
     });
 
+    // The hash write happens after a confirmed import, but inside the upload
+    // retry loop. If it were allowed to throw, the loop would treat it as an
+    // upload failure and send the very same CSV to BioStar again — a database
+    // hiccup causing an extra overwrite import, which is the exact thing this
+    // whole change exists to stop. Failing to record the hash must instead
+    // just mean the row goes out again next run.
+    it('does not re-import when recording the hash fails', async () => {
+      const realUpdate = studentRepo.update.bind(studentRepo);
+      jest
+        .spyOn(studentRepo, 'update')
+        .mockImplementation(async (where, patch) => {
+          if ('biostar_row_hash' in patch) throw new Error('DB write failed');
+          return realUpdate(where, patch);
+        });
+
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      expect(importCalls()).toHaveLength(1);
+      expect(uploadCalls()).toHaveLength(1);
+      // The row keeps no hash, so it is simply exported again next run.
+      expect(studentRepo.byId('12100001').biostar_row_hash).toBeUndefined();
+      // Real backoff inside executeWithRetry, so this genuinely takes seconds.
+    }, 20000);
+
+    // A partial import stores no hash at all. The shape of CsvRowCollection
+    // has never been seen from a real server, so rather than guess which rows
+    // survived, the whole batch goes again: one redundant export, versus
+    // permanently dropping a row that BioStar actually rejected.
+    it('re-exports the whole batch after a partial import', async () => {
+      (axios.post as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/api/attachments')) {
+          return { data: { filename: 'fake-upload.csv' } };
+        }
+        if (url.includes('/api/users/csv_import')) {
+          return { data: { Response: { code: '1' } } };
+        }
+        return { data: {} };
+      });
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      expect(studentRepo.byId('12100001').biostar_row_hash).toBeUndefined();
+
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(
+        latestCsv()
+          .map((r) => r.user_id)
+          .sort(),
+      ).toEqual(['12100001', '12100002']);
+    });
+
     it('exports only the row that changed', async () => {
       sourceRows = [
         sourceRow({ ID: '12100001' }),
@@ -1566,6 +1624,28 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       // No stamp means it is retried rather than written off as checked.
       expect(studentRepo.byId('12100001').remarks_checked_at).toBeUndefined();
+    });
+
+    // A repair job must never be able to fail a roster sync.
+    it('completes the sync even when the sweep itself blows up', async () => {
+      const realFind = studentRepo.find.bind(studentRepo);
+      jest
+        .spyOn(studentRepo, 'find')
+        .mockImplementation(async (options: Record<string, any> = {}) => {
+          // Only the sweep queries by remarks_checked_at; fail just that one
+          // so the rest of the sync runs exactly as it normally would.
+          if (options?.where && 'remarks_checked_at' in options.where) {
+            throw new Error('sweep query exploded');
+          }
+          return realFind(options);
+        });
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await expect(service.executeDatabaseSync('run-1')).resolves.toBeDefined();
+
+      // The roster still landed, and BioStar still got its CSV.
+      expect(studentRepo.byId('12100001')).toBeDefined();
+      expect(latestCsv().map((r) => r.user_id)).toEqual(['12100001']);
     });
 
     it('does not flag a remark that PostgreSQL still holds', async () => {

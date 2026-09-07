@@ -668,27 +668,46 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     return createHash('sha256').update(payload).digest('hex');
   }
 
-  /** Records what BioStar accepted, so the next run can stay quiet. */
+  /**
+   * Records what BioStar accepted, so the next run can stay quiet.
+   *
+   * Never throws, deliberately. This runs inside the upload retry loop, so an
+   * exception here would be caught as an upload failure and the identical CSV
+   * would be sent to BioStar again — a database hiccup causing an extra
+   * overwrite import, which is precisely what the hash exists to prevent.
+   *
+   * Failing to record a hash is the safe direction: the row simply goes out
+   * again on the next run. Losing a hash costs one redundant export; throwing
+   * costs an immediate duplicate import plus a device re-transfer.
+   */
   private async persistRowHashes(
     records: Record<string, string>[],
     hashes: Map<string, string>,
   ): Promise<void> {
     const chunkSize = 50;
-    for (let i = 0; i < records.length; i += chunkSize) {
-      const chunk = records.slice(i, i + chunkSize);
-      await this.commonService.executeWithRetry(
-        async () => {
-          for (const row of chunk) {
-            const hash = hashes.get(row.user_id);
-            if (!hash) continue;
-            await this.studentRepository.update(
-              { ID_Number: row.user_id },
-              { biostar_row_hash: hash },
-            );
-          }
-        },
-        3,
-        `persist row hashes chunk ${Math.floor(i / chunkSize) + 1}`,
+    try {
+      for (let i = 0; i < records.length; i += chunkSize) {
+        const chunk = records.slice(i, i + chunkSize);
+        await this.commonService.executeWithRetry(
+          async () => {
+            for (const row of chunk) {
+              const hash = hashes.get(row.user_id);
+              if (!hash) continue;
+              await this.studentRepository.update(
+                { ID_Number: row.user_id },
+                { biostar_row_hash: hash },
+              );
+            }
+          },
+          3,
+          `persist row hashes chunk ${Math.floor(i / chunkSize) + 1}`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Could not record CSV row hashes; those rows will be re-exported next run: ${
+          (error as Error)?.message ?? String(error)
+        }`,
       );
     }
   }
