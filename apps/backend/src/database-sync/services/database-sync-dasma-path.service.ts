@@ -1533,7 +1533,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       ID_Number: rawId,
       Name: fullName,
       Lived_Name: null,
-      Remarks: record.Remarks || null,
+      // Trimmed on the way in so the stored value matches what the CSV has
+      // always exported (`record.Remarks?.trim() || ''`). Without this a remark
+      // of only spaces stayed truthy in Postgres, so the removal test never
+      // fired: no clear, no pending flag, no log — the stale remark just sat on
+      // the gate screen. Trimming also stops re-padding from looking like a
+      // change, which used to churn the row and inflate the changed-row count.
+      Remarks: record.Remarks?.trim() || null,
       Photo: null,
       Campus_Entry: campusEntry,
       Unique_ID: null,

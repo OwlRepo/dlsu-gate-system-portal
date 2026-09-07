@@ -536,6 +536,57 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(studentRepo.byId('12100001').Remarks).toBeNull();
     });
 
+    // The CSV cell has always been trimmed (`record.Remarks?.trim() || ''`)
+    // while the value stored in Postgres was not, so a remark of only spaces
+    // stayed truthy in the database. The removal test at the persistence layer
+    // therefore never fired: no clear, no pending flag, no log line — the old
+    // remark simply stayed on the gate screen forever. Silent.
+    it('treats a whitespace-only remark from the source as cleared', async () => {
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      sourceRows = [sourceRow({ Remarks: '   ' })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(studentRepo.byId('12100001').Remarks).toBeNull();
+    });
+
+    it('clears a whitespace-only remark in BioStar too', async () => {
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      sourceRows = [sourceRow({ Remarks: '   ' })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledWith(
+        '12100001',
+        'Remarks',
+        expect.any(String),
+        expect.any(String),
+      );
+    });
+
+    // A remark that only gained or lost surrounding spaces is not a change.
+    // Before the trim it looked like one every run, which both churned the
+    // database and inflated the changed-row count the export is sized from.
+    it('does not treat re-padding an unchanged remark as a change', async () => {
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      const afterFirstRun = studentRepo.byId('12100001').updatedAt;
+
+      sourceRows = [sourceRow({ Remarks: '  Owes library fee  ' })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(studentRepo.byId('12100001').Remarks).toBe('Owes library fee');
+      expect(studentRepo.byId('12100001').updatedAt).toEqual(afterFirstRun);
+    });
+
     it('sends the remark to BioStar as an empty CSV cell once removed', async () => {
       sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
       setClock('2026-08-26T08:00:00+08:00');

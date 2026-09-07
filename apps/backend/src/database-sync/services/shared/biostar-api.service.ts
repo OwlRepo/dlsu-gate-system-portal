@@ -83,11 +83,33 @@ export class BiostarApiService {
           : entry,
       );
 
-      await axios.put(
+      const putResponse = await axios.put(
         `${this.apiBaseUrl}/api/users/${encodeURIComponent(userId)}`,
         { User: { user_custom_fields: cleared } },
         { headers, httpsAgent, timeout: 30000 },
       );
+
+      // BioStar answers HTTP 200 with a non-zero Response.code when it refuses
+      // a write, so a 2xx alone proves nothing. Discarding this response is how
+      // a refused clear used to be recorded as success: the caller then reset
+      // `remarks_clear_pending` and the drift became permanent and invisible.
+      //
+      // Only an explicit non-zero code counts as a refusal. A 2xx carrying no
+      // Response envelope stays a success — Suprema does not document a code
+      // vocabulary for the single-user PUT, so demanding one would break this
+      // against a server that simply does not send it.
+      //
+      // Compared via String(): Suprema's examples show "0" as a string, but we
+      // have never captured a real response from this deployment, and a
+      // numeric 0 must not read as failure.
+      const responseCode = putResponse?.data?.Response?.code;
+      if (responseCode !== undefined && String(responseCode) !== '0') {
+        this.logger.warn(
+          `[Biostar] Refused to clear ${fieldName} for user ${userId}: ` +
+            `Response.code=${String(responseCode)}`,
+        );
+        return false;
+      }
 
       this.logger.log(`[Biostar] Cleared ${fieldName} for user ${userId}`);
       return true;
