@@ -23,12 +23,14 @@ describe('StudentsController — GET /students/:idNumber', () => {
         ID_Number: '12100001',
         Name: 'Dela Cruz, Juan',
         Photo: '/9j/4AAQSkZJRgABAQ',
+        Unique_ID: '1234567890',
       } as Student,
       {
         id: 2,
         ID_Number: '12100002',
         Name: 'Santos, Maria',
         Photo: null,
+        Unique_ID: null,
       } as Student,
     ];
 
@@ -57,20 +59,22 @@ describe('StudentsController — GET /students/:idNumber', () => {
     controller = module.get<StudentsController>(StudentsController);
   });
 
-  it('returns the synced photo for a known ID number', async () => {
+  it('returns the synced photo and card for a known ID number', async () => {
     await expect(controller.findOneByIdNumber('12100001')).resolves.toEqual({
       ID_Number: '12100001',
       Name: 'Dela Cruz, Juan',
       Photo: '/9j/4AAQSkZJRgABAQ',
+      Unique_ID: '1234567890',
     });
   });
 
-  it('returns a null photo rather than omitting the field', async () => {
-    // The frontend branches on Photo being null, so the key must be present.
+  it('returns null photo and card rather than omitting the fields', async () => {
+    // The frontend branches on these being null, so the keys must be present.
     await expect(controller.findOneByIdNumber('12100002')).resolves.toEqual({
       ID_Number: '12100002',
       Name: 'Santos, Maria',
       Photo: null,
+      Unique_ID: null,
     });
   });
 
@@ -80,8 +84,17 @@ describe('StudentsController — GET /students/:idNumber', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('returns only identity and photo — never remarks or campus entry', async () => {
+  // DLSU reported "photo and card wla daw return yung api ng sync". The card
+  // lives in `Unique_ID` — there is no column called `card` — and this is the
+  // only endpoint that serves a single student's photo, so it is where the
+  // card belongs too. Still deliberately narrow: no remarks, no campus entry.
+  it('returns identity, photo and card — and nothing else', async () => {
     const result = await controller.findOneByIdNumber('12100001');
-    expect(Object.keys(result).sort()).toEqual(['ID_Number', 'Name', 'Photo']);
+    expect(Object.keys(result).sort()).toEqual([
+      'ID_Number',
+      'Name',
+      'Photo',
+      'Unique_ID',
+    ]);
   });
 });

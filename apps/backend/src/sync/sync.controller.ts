@@ -48,6 +48,43 @@ export class SyncController {
                 nullable: true,
                 description: 'EMPLOYEE, STUDENT, or AGENCY',
               },
+              // This endpoint returns whole entities, so every column the Dasma
+              // sync added appears in the payload whether documented or not.
+              // Listed so the contract matches what clients actually receive.
+              date_activated: {
+                type: 'string',
+                format: 'date-time',
+                nullable: true,
+              },
+              date_deactivated: {
+                type: 'string',
+                format: 'date-time',
+                nullable: true,
+              },
+              expiry_datetime: {
+                type: 'string',
+                format: 'date-time',
+                nullable: true,
+                description: 'Activation date + 10 years. Write-once.',
+              },
+              remarks_clear_pending: {
+                type: 'boolean',
+                description:
+                  'A removed remark BioStar has not confirmed clearing yet.',
+              },
+              biostar_row_hash: {
+                type: 'string',
+                nullable: true,
+                description:
+                  'Fingerprint of the CSV row BioStar last accepted. Internal to the sync.',
+              },
+              remarks_checked_at: {
+                type: 'string',
+                format: 'date-time',
+                nullable: true,
+                description:
+                  'When this remark was last reconciled against BioStar.',
+              },
               createdAt: { type: 'string', format: 'date-time' },
               updatedAt: { type: 'string', format: 'date-time' },
             },

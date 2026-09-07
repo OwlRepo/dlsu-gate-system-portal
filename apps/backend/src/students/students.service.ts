@@ -28,16 +28,22 @@ export class StudentsService {
     ID_Number: string;
     Name: string;
     Photo: string | null;
+    Unique_ID: string | null;
   } | null> {
     const student = await this.studentRepository.findOne({
       where: { ID_Number: idNumber },
-      select: ['ID_Number', 'Name', 'Photo'],
+      select: ['ID_Number', 'Name', 'Photo', 'Unique_ID'],
     });
     if (!student) return null;
     return {
       ID_Number: student.ID_Number,
       Name: student.Name,
       Photo: student.Photo ?? null,
+      // The card. There is no column called `card` — BioStar's CSN is stored
+      // in `Unique_ID`, populated by the BioStar -> PostgreSQL sync. Served
+      // here because this is the only endpoint that returns one student's
+      // synced profile, and DLSU reported the card missing beside the photo.
+      Unique_ID: student.Unique_ID ?? null,
     };
   }
 

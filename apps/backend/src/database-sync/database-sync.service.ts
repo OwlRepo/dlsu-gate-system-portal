@@ -83,10 +83,17 @@ export class DatabaseSyncService {
     const rawEnv = this.configService.get('SOURCE_DB_SCHEMA_ENV') ?? 'main';
     const envValue = String(rawEnv).trim().toLowerCase();
     this.schemaEnv = envValue === 'dasma' ? 'dasma' : 'main';
+    // Defaults to ON. The standalone backend this monorepo was built from had
+    // no such switch at all — it always ran the BioStar -> PostgreSQL phase.
+    // Introducing the flag defaulting to OFF, and leaving it out of
+    // .env.example, silently disabled the only code that writes `Photo` or
+    // `Unique_ID` into PostgreSQL, which is why DLSU reported "photo and card
+    // wla daw return yung api ng sync" on a deployment that used to work.
+    // Only the literal string "false" turns it off now.
     this.isBiostarSyncEnabled =
-      String(this.configService.get('ENABLE_BIOSTAR_SYNC') ?? '')
+      String(this.configService.get('ENABLE_BIOSTAR_SYNC') ?? 'true')
         .trim()
-        .toLowerCase() === 'true';
+        .toLowerCase() !== 'false';
 
     this.initializeSchedules();
 

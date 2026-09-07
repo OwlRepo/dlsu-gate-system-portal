@@ -17,6 +17,7 @@ import { GenerateStudentCsvDto } from './dto/generate-csv.dto';
 import { Response } from 'express';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { NoCache } from '../decorators/cache-control.decorator';
 
 @ApiTags('Students')
 @Controller('students')
@@ -162,15 +163,22 @@ export class StudentsController {
    * '/students/generate-csv' as an ID number.
    */
   @Get(':idNumber')
+  @NoCache()
   @ApiOperation({
-    summary: "Get one student's synced profile photo",
+    summary: "Get one student's synced profile photo and card",
     description: `
-      Returns { ID_Number, Name, Photo } for a single student.
+      Returns { ID_Number, Name, Photo, Unique_ID } for a single student.
 
       Exists so the gate dashboards can fall back to the photo the Dasma sync
       pulled from BioStar into PostgreSQL when BioStar itself returns no photo
       for a user. The paginated GET /students deliberately omits Photo to keep
       the list payload small, so it cannot serve this.
+
+      Unique_ID is the card (BioStar's CSN) — there is no column named 'card'.
+
+      Deliberately not cached. The global cache interceptor keys GETs on URL
+      alone for an hour, so without this a student whose photo arrived moments
+      after a miss would keep reading as photo-less for the rest of that hour.
     `,
   })
   @ApiResponse({ status: 200, description: 'Student found' })
