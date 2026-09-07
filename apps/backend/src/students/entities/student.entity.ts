@@ -69,10 +69,11 @@ export class Student {
    * This person's remark was removed in the source view but BioStar has not
    * confirmed the clear yet.
    *
-   * Clearing a remark needs a per-user PUT (BioStar's CSV import ignores a
-   * blank cell). Without this flag a failed PUT could never be retried — the
-   * retry trigger is the old `Remarks` value, and PostgreSQL clears it in the
-   * same run — leaving PostgreSQL and the gate screen permanently disagreeing.
+   * Clearing a remark needs a per-user PUT (BioStar's CSV import appears to
+   * ignore a blank cell — reported by DLSU, not verified here). Without this
+   * flag a failed PUT could never be retried: the retry trigger is the old
+   * `Remarks` value, and PostgreSQL clears it in the same run, leaving
+   * PostgreSQL and the gate screen permanently disagreeing.
    */
   @Column({
     name: 'remarks_clear_pending',

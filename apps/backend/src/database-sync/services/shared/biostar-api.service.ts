@@ -20,11 +20,19 @@ export class BiostarApiService {
   /**
    * Clears one user custom field — in practice "Remarks" — in BioStar.
    *
-   * The CSV import cannot do this. Updating a remark to a NEW value through
-   * `csv_import` works, but an empty cell is ignored rather than applied, so a
-   * remark deleted in the DLSU source view stays on the gate screen forever.
-   * Suprema documents the per-user update as the way to clear a user field
-   * (their profile-photo article clears the photo by sending it empty).
+   * The CSV import appears unable to do this. Updating a remark to a NEW value
+   * through `csv_import` works; emptying it does not. That is a FIELD REPORT
+   * from DLSU, not something we have observed against a server ourselves — the
+   * CSV has always sent an empty cell for a cleared remark, and the remark
+   * stayed. Note it also sits uneasily beside the CSN comment in
+   * `database-sync-dasma-path.service.ts`, which assumes a blank `csn` cell IS
+   * applied. Suprema documents neither case. The reconciling guess is that
+   * blanks apply to built-in fields and are ignored for custom ones, but it is
+   * a guess.
+   *
+   * What IS documented: Suprema's per-user update clears a field by sending it
+   * empty (their profile-photo article does exactly that), and states you need
+   * only send the parameters you want to change.
    *
    * Read-modify-write on purpose: it sends back the exact `user_custom_fields`
    * array BioStar just returned, with a single `item` blanked. Nothing about

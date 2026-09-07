@@ -3,8 +3,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 /**
  * Remembers that a remark still needs clearing in BioStar.
  *
- * Clearing a removed remark needs a per-user PUT, because BioStar's csv_import
- * ignores a blank cell rather than applying it. If that PUT fails, the sync had
+ * Clearing a removed remark needs a per-user PUT: BioStar's csv_import appears
+ * to ignore a blank cell rather than apply it — a DLSU field report, not
+ * something verified against a server here. If that PUT fails, the sync had
  * no way to retry: the trigger for it is `existing.Remarks` still holding the
  * old value, and PostgreSQL was cleared in the same run. The transition never
  * recurs, so PostgreSQL said "no remark" while the gate screen kept showing

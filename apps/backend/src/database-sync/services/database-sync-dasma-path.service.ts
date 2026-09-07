@@ -943,7 +943,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               group: groupValue ?? null,
             });
             // A remark that went from a value to nothing needs a per-user PUT:
-            // an empty CSV cell is ignored by BioStar's import, so the CSV
+            // an empty CSV cell appears to be ignored by BioStar's import
+            // (DLSU field report, never verified here), so the CSV
             // alone can never clear it.
             const remarkWasRemoved =
               'Remarks' in changedFields &&
