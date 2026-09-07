@@ -706,6 +706,21 @@ taskkill /PID <PID> /F
    npm run migration:run
    ```
 
+**`function uuid_generate_v4() does not exist`**
+
+Nothing to do — this is handled automatically. The first migration,
+`EnableUuidOsspExtension1700000000000`, installs the `uuid-ossp` extension
+before anything needs it. On a database that already has the extension the
+migration is a no-op and needs no special privileges.
+
+It only fails if the extension is missing *and* the application's database role
+is not allowed to create one, and it then says so explicitly. A superuser runs
+this once against the database and the deploy proceeds:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+```
+
 #### Firewall Blocking Access
 
 **Issue**: Cannot access API from external machines

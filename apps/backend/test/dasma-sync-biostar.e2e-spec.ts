@@ -139,20 +139,13 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       database: env.E2E_DB_NAME ?? 'dlsu_gate_system_e2e',
     };
 
-    // The migrations call uuid_generate_v4() but never create the extension
-    // that provides it, so `migration:run` against a brand-new database fails
-    // on CreateReportsTable. Existing environments only work because the
-    // extension was installed by hand at some point. Created here so this suite
-    // can build its schema from nothing.
-    const bootstrap = new DataSource({ ...connection, logging: false });
-    await bootstrap.initialize();
-    await bootstrap.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
-    await bootstrap.destroy();
-
     dataSource = new DataSource({
       ...connection,
       entities: [Student, SyncSchedule, BiostarSyncState],
-      // Built by the MIGRATIONS, not by synchronize. The entity understates the
+      // Built by the MIGRATIONS, not by synchronize — including the uuid-ossp
+      // extension, which EnableUuidOsspExtension1700000000000 installs before
+      // anything needs it. Nothing is set up by hand here; a virgin database
+      // is enough. The entity understates the
       // real schema — `ID_Number` carries a UNIQUE constraint that exists only
       // in the migration, and the duplicate-key fallback depends on it — so a
       // synchronize-built database would quietly differ from production and

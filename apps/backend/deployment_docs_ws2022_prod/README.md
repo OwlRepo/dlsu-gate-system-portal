@@ -28,6 +28,7 @@ The existing PM2 flow in `deployment_docs/` remains for test/staging and is not 
 Notes:
 
 - Migration step includes fallback commands for both `src/config/data-source.ts` and `src/config/typeorm.config.ts`.
+- The `uuid-ossp` extension is installed by the first migration, so a brand-new database needs no manual SQL. On a database that already has it the migration is a no-op requiring no special privileges. It fails only when the extension is missing *and* the app's database role may not create one — and it then prints the exact statement a superuser must run.
 - Service install step auto-searches NSSM in common locations and attempts install via `winget`/`choco` before failing.
 
 ## Update Deploy
