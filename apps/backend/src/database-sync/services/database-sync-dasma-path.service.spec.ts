@@ -1647,6 +1647,19 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(latestCsv()).toHaveLength(0);
     });
 
+    // BioStar answered, and the answer was "this person has no card". An empty
+    // csn here can clear nothing, so the row goes out normally — unlike the
+    // case where BioStar could not be reached at all.
+    it('exports a row with an empty csn when BioStar says there is no card', async () => {
+      biostarDetails['12100001'] = { user_id: '12100001' };
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(latestCsv()).toHaveLength(1);
+      expect(csvRowFor('12100001').csn).toBe('');
+    });
+
     it('exports the stored card without calling BioStar at all', async () => {
       setClock('2026-08-26T08:00:00+08:00');
       await service.executeDatabaseSync('run-1');
@@ -1667,6 +1680,54 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       expect(biostarApi.fetchBiostarUserDetailWithRetry).not.toHaveBeenCalled();
       expect(csvRowFor('12100001').csn).toBe('1234567890');
+    });
+  });
+
+  // =====================================================================
+  // Source-data shapes that only show up in the wild
+  // =====================================================================
+  describe('awkward source data', () => {
+    // A duplicate ID within one batch is covered in the e2e suite instead: the
+    // fallback it exercises is triggered by PostgreSQL's UNIQUE constraint on
+    // ID_Number, which this in-memory fake does not enforce. Asserting it here
+    // would only be testing the fake.
+
+    it('maps the three known groups and leaves anything else ungrouped', async () => {
+      sourceRows = [
+        sourceRow({ ID: '12100001', Group: 'EMPLOYEE' }),
+        sourceRow({ ID: '12100002', Group: 'faculty' }),
+        sourceRow({ ID: '12100003', Group: null }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      // user_title is the raw source value, or 'Student' when absent.
+      expect(csvRowFor('12100001').user_title).toBe('EMPLOYEE');
+      expect(csvRowFor('12100002').user_title).toBe('faculty');
+      expect(csvRowFor('12100003').user_title).toBe('Student');
+
+      // The stored enum only accepts the three known values.
+      expect(studentRepo.byId('12100001').group).toBe('EMPLOYEE');
+      expect(studentRepo.byId('12100002').group).toBeNull();
+      expect(studentRepo.byId('12100003').group).toBeNull();
+    });
+
+    // Manila is UTC+8, so 15:59Z and 16:01Z fall on different Manila days.
+    // A stored window must not shift just because a run straddles midnight
+    // there — that was the original drifting-expiry bug in miniature.
+    it('does not move a stored window across Manila midnight', async () => {
+      setClock('2026-08-26T15:59:00Z'); // 23:59 Manila
+      await service.executeDatabaseSync('run-1');
+      const before = csvRowFor('12100001', 0);
+
+      setClock('2026-08-26T16:01:00Z'); // 00:01 Manila, the next day
+      sourceRows = [sourceRow({ LastName: 'Reyes' })];
+      await service.executeDatabaseSync('run-2');
+      const after = csvRowFor('12100001', 1);
+
+      expect(after.start_datetime).toBe(before.start_datetime);
+      expect(after.expiry_datetime).toBe(before.expiry_datetime);
     });
   });
 

@@ -58,7 +58,7 @@ Commands must be verified from package scripts or repo docs before being listed 
 | Linting | `bun run lint` | `eslint --fix`. |
 | Unit tests | `bun run test` / `npm test` | Jest, co-located `*.spec.ts` files under `apps/backend/src`. 20 spec files, 202 tests. Run with `TZ=Asia/Manila` — the Dasma specs pin the clock and assert Manila-anchored datetimes. |
 | Coverage | `bun run test:cov` | Jest coverage report. |
-| E2E tests | `bun run test:e2e` | `jest --config test/jest-e2e.json`. Only one spec (`test/app.e2e-spec.ts`) exists and it expects `GET /` → `"Hello World!"`, but `AppController` has no routes — **this test is likely stale/failing; verify before relying on it as a regression gate.** |
+| E2E tests | `TZ=Asia/Manila bun run test:e2e` | `jest --config test/jest-e2e.json`. `test/dasma-sync-biostar.e2e-spec.ts` runs the Dasma sync against a real local PostgreSQL (`dlsu_gate_system_e2e`, schema built by the migrations) and a fake BioStar HTTP server (`test/fake-biostar-server.ts`) over real axios/multipart/fs — only the `mssql` driver is faked. Create the database once: `createdb -h localhost -p 5433 -U postgres dlsu_gate_system_e2e`. The stale Nest-scaffold `app.e2e-spec.ts` was removed: it asserted `GET /` → `"Hello World!"` on an `AppController` that has no routes, and could not even load. |
 | Migrations | `bun run migration:generate` / `migration:run` / `migration:revert` | Uses `src/config/data-source.ts` (the canonical DataSource — see `../knowledge/architecture.md` for the 3 inconsistent DataSource configs). |
 
 ## Verified Commands — Frontend (`apps/portal-web`, Next.js 15 + Vitest)
@@ -84,7 +84,7 @@ Commands must be verified from package scripts or repo docs before being listed 
 
 No longer gaps: `src/database-sync/` now has four specs — the Dasma path, the shared common service, the BioStar API write path, and a CSV-bytes/volume spec that asserts the exported file byte-for-byte and pins how many overwrite imports a full roster costs. `src/students/`, `src/auth/` and `src/health/` are also covered.
 
-Additionally, `test/app.e2e-spec.ts` is the only e2e spec and is likely stale (expects a `GET /` route that no longer exists).
+E2E coverage now exists for the Dasma sync end to end — both directions, over real HTTP and real PostgreSQL. Two schema facts it surfaced and depends on: the migrations call `uuid_generate_v4()` without ever creating the `uuid-ossp` extension, so they fail on a brand-new database until it is installed; and `Student.ID_Number` carries a UNIQUE constraint that exists only in the migration, not on the entity — so a `synchronize`-built schema silently differs from production.
 
 **Frontend — 17 Vitest files.** Coverage is concentrated in the campus-mode/access-status area plus the dashboards and the synced-photo fallback (`lib/synced-photo.test.ts`, `lib/image-type.test.ts`). There are still **no tests** for:
 

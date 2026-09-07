@@ -1058,6 +1058,34 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                             { ...merged, updatedAt: new Date() },
                           );
                         }
+                      } else {
+                        // Collateral damage. The chunk was rejected wholesale
+                        // because SOME row in it duplicated an existing ID —
+                        // but this row is genuinely new and did nothing wrong.
+                        // Without this it was silently dropped: it never
+                        // reached PostgreSQL, so it never reached BioStar, so
+                        // the person could not get through the gate. One
+                        // duplicated ID in the source view took out up to 50
+                        // students at a time, invisibly.
+                        //
+                        // Inserted individually. If the duplicate is WITHIN
+                        // this chunk, the first pass inserts and the second
+                        // finds it existing and updates — which de-duplicates
+                        // the source view for free.
+                        try {
+                          await this.studentRepository.insert(rec);
+                        } catch (insertError) {
+                          this.logger.error(
+                            `[Batch ${batchNumber}] Could not insert ${rec.ID_Number}: ${
+                              (insertError as Error)?.message
+                            }`,
+                          );
+                          failedRecordsAll.push({
+                            batchNumber,
+                            error: 'Insert failed after duplicate-key fallback',
+                            details: String(rec.ID_Number),
+                          });
+                        }
                       }
                     }
                   } else {
