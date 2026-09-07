@@ -1489,6 +1489,58 @@ describe('DatabaseSyncDasmaPathService', () => {
       ).toEqual(['12100001', '12100002']);
     });
 
+    // THE ONE THAT WOULD HURT MOST. If the source view returns nothing — a
+    // broken view, a permissions change, a bad deploy on the DLSU side — the
+    // reconciliation must NOT read that as "everyone has left" and archive the
+    // whole roster. Archiving everybody denies every person at every gate.
+    it('archives nobody when the source view comes back empty', async () => {
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      expect(studentRepo.byId('12100001').isArchived).toBe(false);
+
+      sourceRows = [];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(studentRepo.byId('12100001').isArchived).toBe(false);
+      expect(uploadCalls()).toHaveLength(1); // run-1 only; nothing new to send
+    });
+
+    // Every remaining person is archived, so there is no data row to send.
+    // csv-writer still emits the header, so the file is never zero-length and
+    // the size check cannot catch this — only the explicit guard can. A
+    // header-only file imported under overwrite is not a harmless no-op.
+    it('uploads nothing when every row is archived', async () => {
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      jest.clearAllMocks();
+      sourceRows = [sourceRow({ IsArchived: true })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(uploadCalls()).toHaveLength(0);
+      expect(importCalls()).toHaveLength(0);
+    });
+
+    // The attachment call can answer 200 with no filename, and the import
+    // needs that name. It must retry rather than post an import naming
+    // undefined, and must give up rather than loop.
+    it('never imports when the attachment upload returns no filename', async () => {
+      (axios.post as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/api/attachments')) return { data: {} };
+        return { data: {} };
+      });
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(importCalls()).toHaveLength(0);
+      expect(uploadCalls()).toHaveLength(3); // three attempts, then gives up
+      // No hash recorded, so the row is retried on the next run.
+      expect(studentRepo.byId('12100001').biostar_row_hash).toBeUndefined();
+    }, 30000);
+
     it('exports only the row that changed', async () => {
       sourceRows = [
         sourceRow({ ID: '12100001' }),
