@@ -152,7 +152,20 @@ export class DatabaseSyncCommonService {
       // was already inactive and stays inactive must not have their
       // deactivation date rewritten on every run — that would be the same
       // drifting-date bug in a different column.
-      return wasActive ? { date_deactivated: now } : null;
+      if (wasActive) {
+        return { date_deactivated: now };
+      }
+      // Inactive and never stamped: the row is brand new and arrived inactive,
+      // it predates these columns, or it was created before this backfill
+      // existed. Either way there was no active->inactive moment to record, and
+      // the exported expiry window is derived from this stamp — so without it
+      // the window falls back to "today" and the row looks different to BioStar
+      // every single day. Stamp once, then leave it alone: the same write-once
+      // rule the active window follows.
+      if (!existing || !existing.date_deactivated) {
+        return { date_deactivated: now };
+      }
+      return null;
     }
 
     if (!wasActive) {

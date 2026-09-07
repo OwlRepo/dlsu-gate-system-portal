@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 import * as https from 'https';
+import { createHash } from 'crypto';
 import * as FormData from 'form-data';
 import { createObjectCsvWriter } from 'csv-writer';
 import * as dayjs from 'dayjs';
@@ -500,13 +501,75 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     sessionId: string,
     fetchFromBiostar: boolean,
     rateLimitTracker: { count: number },
-  ): Promise<string> {
+  ): Promise<{ csn: string; unresolved: boolean; fetched: boolean }> {
+    return this.resolveCsn(
+      userId,
+      existing,
+      token,
+      sessionId,
+      fetchFromBiostar,
+      rateLimitTracker,
+    );
+  }
+
+  /**
+   * Fingerprints one rendered CSV row.
+   *
+   * Hashed in header order over the exact cell values, so this identifies the
+   * bytes BioStar is about to receive rather than the database row behind them.
+   * That distinction is the point: a row can change without any Postgres column
+   * changing — a card newly resolved from BioStar, or a first activation window
+   * — and a column-level comparison would miss exactly those.
+   */
+  private hashCsvRow(
+    row: Record<string, string>,
+    headers: { id: string; title: string }[],
+  ): string {
+    const payload = headers.map((h) => row[h.id] ?? '').join(' ');
+    return createHash('sha256').update(payload).digest('hex');
+  }
+
+  /** Records what BioStar accepted, so the next run can stay quiet. */
+  private async persistRowHashes(
+    records: Record<string, string>[],
+    hashes: Map<string, string>,
+  ): Promise<void> {
+    const chunkSize = 50;
+    for (let i = 0; i < records.length; i += chunkSize) {
+      const chunk = records.slice(i, i + chunkSize);
+      await this.commonService.executeWithRetry(
+        async () => {
+          for (const row of chunk) {
+            const hash = hashes.get(row.user_id);
+            if (!hash) continue;
+            await this.studentRepository.update(
+              { ID_Number: row.user_id },
+              { biostar_row_hash: hash },
+            );
+          }
+        },
+        3,
+        `persist row hashes chunk ${Math.floor(i / chunkSize) + 1}`,
+      );
+    }
+  }
+
+  private async resolveCsn(
+    userId: string,
+    existing: Student | undefined,
+    token: string,
+    sessionId: string,
+    fetchFromBiostar: boolean,
+    rateLimitTracker: { count: number },
+  ): Promise<{ csn: string; unresolved: boolean; fetched: boolean }> {
     const fromDb = this.normalizeUniqueIdValue(existing?.Unique_ID);
     if (fromDb) {
-      return fromDb;
+      return { csn: fromDb, unresolved: false, fetched: false };
     }
     if (!fetchFromBiostar) {
-      return '';
+      // Card resolution deliberately switched off: we know nothing either way,
+      // so behave as before and let the empty cell go out.
+      return { csn: '', unresolved: false, fetched: false };
     }
     const detail = await this.biostarApiService.fetchBiostarUserDetailWithRetry(
       userId,
@@ -516,12 +579,18 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       rateLimitTracker,
     );
     if (!detail) {
-      return '';
+      // BioStar was asked and could not answer. This is the only case where an
+      // empty `csn` is dangerous: under `import_option: 2` a blank cell is a
+      // candidate to blank a card the person really holds. The caller drops the
+      // row instead. Someone BioStar DOES answer for who simply has no card is
+      // a different thing — a blank there can clear nothing.
+      return { csn: '', unresolved: true, fetched: false };
     }
     const card = this.extractBiostarCardValue(
       detail as Record<string, unknown>,
     );
-    return this.normalizeUniqueIdValue(card) ?? '';
+    const csn = this.normalizeUniqueIdValue(card) ?? '';
+    return { csn, unresolved: false, fetched: csn !== '' };
   }
 
   private async getOrCreateBiostarSyncState(): Promise<BiostarSyncState> {
@@ -609,6 +678,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // each run is re-sending rows that did not change.
       let rowsChanged = 0;
       let rowsUnchanged = 0;
+      /** Rows dropped because BioStar could not confirm their card. */
+      const csnUnresolvedAll: string[] = [];
+      /** Rows suppressed because their exported content is unchanged. */
+      let csvRowsSuppressed = 0;
+      let csvRowsEmitted = 0;
+      let batchesSkippedNoChanges = 0;
+      let csnPersistedFromBiostar = 0;
 
       const batchSize = parseInt(process.env.SYNC_BATCH_SIZE) || 500;
       let totalProcessed = 0;
@@ -876,16 +952,11 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         });
         const skippedRecords = [];
 
+        // Only a fallback now. Both windows are anchored to what is stored on
+        // the row — activation for the enabled window, deactivation for the
+        // disabled one — so an unchanged person exports identical dates every
+        // run. See the per-row derivation below.
         const currentDate = dayjs().tz('Asia/Manila').startOf('day');
-        // The DISABLED window stays pinned to today on purpose: an expired
-        // window is how this system deactivates someone, so it has to keep
-        // reading as expired no matter when they were deactivated.
-        const formattedStartDateDisabled = currentDate
-          .subtract(2, 'day')
-          .format('YYYY-MM-DD HH:mm:ss.SSS');
-        const formattedExpiryDateDisabled = currentDate
-          .subtract(1, 'day')
-          .format('YYYY-MM-DD HH:mm:ss.SSS');
 
         const activeRecordsForBiostar = batchRecordsWithPhoto.filter(
           (r) => r.isArchived !== true,
@@ -965,12 +1036,27 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               expiryFallbackUsed.push(userId);
             }
 
+            // The disabled window is anchored to the stored deactivation date,
+            // not to today. It still has to read as expired — an expired window
+            // is how this system denies someone at the gate — and a fixed date
+            // in the past does that just as well as a moving one. Deriving it
+            // from dayjs() every run made every disabled person's row change
+            // daily, which would re-export the entire disabled population every
+            // single day and defeat the whole point of the comparison below.
+            const disabledAnchor = stored?.date_deactivated
+              ? dayjs(stored.date_deactivated).tz('Asia/Manila').startOf('day')
+              : currentDate;
+
             const startDatetime = isDisabled
-              ? formattedStartDateDisabled
+              ? disabledAnchor
+                  .subtract(2, 'day')
+                  .format(BIOSTAR_DATETIME_FORMAT)
               : (this.formatBiostarDatetime(storedStart) ??
                 currentDate.subtract(1, 'day').format(BIOSTAR_DATETIME_FORMAT));
             const expiryDatetime = isDisabled
-              ? formattedExpiryDateDisabled
+              ? disabledAnchor
+                  .subtract(1, 'day')
+                  .format(BIOSTAR_DATETIME_FORMAT)
               : (this.formatBiostarDatetime(storedExpiry) ??
                 currentDate.add(10, 'year').format(BIOSTAR_DATETIME_FORMAT));
 
@@ -995,15 +1081,23 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         );
 
         let csnFilledFromApi = 0;
-        const formattedRecords: Record<string, string>[] =
-          await this.commonService.runWithConcurrency(
-            toResolveCsn,
-            csnConcurrency,
-            async ({ userId, rowBase }): Promise<Record<string, string>> => {
-              const hadDbCsn = !!this.normalizeUniqueIdValue(
-                existingMap.get(userId)?.Unique_ID,
-              );
-              const csn = await this.resolveDasmaCsnForCsvRow(
+        /** Cards learned from BioStar this batch, to write back once. */
+        const csnToPersist: { userId: string; csn: string }[] = [];
+        const resolvedRows = await this.commonService.runWithConcurrency(
+          toResolveCsn,
+          csnConcurrency,
+          async ({
+            userId,
+            rowBase,
+          }): Promise<{
+            row: Record<string, string>;
+            unresolved: boolean;
+          }> => {
+            const hadDbCsn = !!this.normalizeUniqueIdValue(
+              existingMap.get(userId)?.Unique_ID,
+            );
+            const { csn, unresolved, fetched } =
+              await this.resolveDasmaCsnForCsvRow(
                 userId,
                 existingMap.get(userId),
                 csnToken,
@@ -1011,12 +1105,91 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 fetchCardsFromBiostar,
                 csnRateLimitTracker,
               );
-              if (!hadDbCsn && csn) {
-                csnFilledFromApi++;
+            if (!hadDbCsn && csn) {
+              csnFilledFromApi++;
+            }
+            if (fetched) {
+              csnToPersist.push({ userId, csn });
+            }
+            return { row: { ...rowBase, csn }, unresolved };
+          },
+        );
+
+        // Write back every card BioStar just told us about. Without this the
+        // same lookup repeats on every run for every card-less student, and a
+        // momentary BioStar outage turns their `csn` cell empty — which would
+        // both churn the export and put their card at risk.
+        if (csnToPersist.length) {
+          await this.commonService.executeWithRetry(
+            async () => {
+              for (const { userId, csn } of csnToPersist) {
+                await this.studentRepository.update(
+                  { ID_Number: userId },
+                  { Unique_ID: csn, updatedAt: new Date() },
+                );
+                const cached = existingMap.get(userId);
+                if (cached) {
+                  cached.Unique_ID = csn;
+                }
               }
-              return { ...rowBase, csn };
             },
+            3,
+            `persist CSNs batch ${batchNumber}`,
           );
+        }
+
+        const csnUnresolvedIds = resolvedRows
+          .filter((r) => r.unresolved)
+          .map((r) => r.row.user_id);
+        if (csnUnresolvedIds.length) {
+          this.logger.warn(
+            `[Batch ${batchNumber}] Skipping ${csnUnresolvedIds.length} row(s) whose card BioStar could not confirm; ` +
+              `exporting a blank csn under import_option 2 could clear a real card.`,
+          );
+          csnUnresolvedAll.push(...csnUnresolvedIds);
+        }
+
+        const candidateRecords: Record<string, string>[] = resolvedRows
+          .filter((r) => !r.unresolved)
+          .map((r) => r.row);
+        csnPersistedFromBiostar += csnToPersist.length;
+
+        // ------------------------------------------------------------------
+        // Send BioStar only what actually changed.
+        //
+        // `import_option: 2` is per-record Overwrite, so every row in this file
+        // marks that user modified in BioStar, and BioStar's Automatic User
+        // Synchronization then re-transfers them to every connected device.
+        // Exporting the whole roster every run is therefore not merely wasteful
+        // — it is what re-enrolled thousands of users on the gates.
+        //
+        // The comparison is on the rendered row, not on the Postgres columns,
+        // because a row can change without any column changing: a card newly
+        // resolved from BioStar, or a first activation window. Hashing what we
+        // are about to send is the only comparison that cannot miss those.
+        // ------------------------------------------------------------------
+        const rowHashes = new Map<string, string>();
+        const formattedRecords = candidateRecords.filter((row) => {
+          const hash = this.hashCsvRow(row, dasmaHeaders);
+          rowHashes.set(row.user_id, hash);
+          const unchanged =
+            existingMap.get(row.user_id)?.biostar_row_hash === hash;
+          if (unchanged) csvRowsSuppressed++;
+          return !unchanged;
+        });
+        csvRowsEmitted += formattedRecords.length;
+
+        // Nothing to say. Writing a header-only CSV and importing it is still a
+        // full overwrite request, so the upload has to be skipped outright —
+        // the file-size check further down cannot catch this, because csv-writer
+        // always emits the header line and the file is therefore never empty.
+        if (formattedRecords.length === 0) {
+          batchesSkippedNoChanges++;
+          this.logger.log(
+            `[Batch ${batchNumber}] No changed rows (${csvRowsSuppressed} unchanged so far); skipping CSV upload entirely.`,
+          );
+          continue;
+        }
 
         if (csnFilledFromApi > 0 || fetchCardsFromBiostar) {
           this.logger.log(
@@ -1158,11 +1331,18 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             //   "8" = all failed (delivered with HTTP 404, so axios rejects
             //         and the catch below retries it — it never lands here)
             // Anything else is undocumented and must not be read as success.
+            // Compared via String() because we have never captured a real
+            // response from this deployment and our own fixtures disagree on
+            // whether the code arrives as a string or a number.
             const responseCode = importResponse.data?.Response?.code;
+            const codeText =
+              responseCode === undefined || responseCode === null
+                ? null
+                : String(responseCode);
             const outcome: 'success' | 'partial' | 'failed' =
-              responseCode === '0'
+              codeText === '0'
                 ? 'success'
-                : responseCode === '1'
+                : codeText === '1'
                   ? 'partial'
                   : 'failed';
             csvImportOutcomes.push({
@@ -1175,8 +1355,18 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             });
 
             if (outcome === 'success') {
+              // Only now is it safe to remember what BioStar holds. Recording
+              // the hash any earlier would let a rejected batch be treated as
+              // delivered and silently skipped on every future run.
+              //
+              // Deliberately not done for a partial import: the shape of
+              // CsvRowCollection has never been observed against a real server,
+              // so rather than guess which rows survived, the whole batch is
+              // re-sent next run. That costs one extra export and cannot lose a
+              // row — the opposite trade would risk dropping one permanently.
+              await this.persistRowHashes(formattedRecords, rowHashes);
               this.logger.log(
-                `[Batch ${batchNumber}] CSV import successful — all ${formattedRecords.length} records processed`,
+                `[Batch ${batchNumber}] CSV import successful — all ${formattedRecords.length} changed records processed`,
               );
             } else if (outcome === 'failed') {
               this.logger.error(
@@ -1434,10 +1624,29 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         // Anything here means the stored expiry window is not persisting.
         expiryFallbackUsed: this.commonService.capIds(expiryFallbackUsed),
 
-        // How much of this run re-sent rows that had not changed. This is the
-        // evidence for whether a changed-only CSV export is worth its risk.
+        // How much of this run changed at the database level.
         rowsChanged,
         rowsUnchanged,
+
+        // What actually went to BioStar. On a healthy run after the first,
+        // `csvRowsEmitted` should be small and `batchesSkippedNoChanges`
+        // should account for most batches — that is the whole point of the
+        // change: every emitted row marks a user modified in BioStar and gets
+        // them re-transferred to every device.
+        csvExport: {
+          rowsEmitted: csvRowsEmitted,
+          rowsSuppressedUnchanged: csvRowsSuppressed,
+          batchesSkippedNoChanges,
+          // Rows dropped because BioStar could not confirm their card. Sending
+          // a blank csn under import_option 2 could clear a real card, so the
+          // row is held back instead. A number that stays high means BioStar
+          // lookups are failing, not that people have no cards.
+          csnUnresolvedRowsSkipped: this.commonService.capIds(csnUnresolvedAll),
+          // Cards learned from BioStar and written back this run. Should fall
+          // to ~0 once the roster is populated; if it stays high the write-back
+          // is not sticking.
+          csnPersistedFromBiostar,
+        },
 
         csvImport: csvImportOutcomes,
 

@@ -81,6 +81,45 @@ export class Student {
   })
   remarks_clear_pending: boolean;
 
+  /**
+   * sha256 of the CSV row last successfully accepted by BioStar for this
+   * student.
+   *
+   * The Dasma export compares each freshly rendered row against this and ships
+   * only the ones that differ. Before it existed the CSV carried the whole
+   * non-archived roster every run, and because the import uses
+   * `import_option: 2` (Overwrite) BioStar marked every user modified and
+   * re-transferred them to every device.
+   *
+   * Written only after BioStar confirms the import, so a failed or partial
+   * upload leaves the old hash in place and the row is retried next run.
+   * NULL means "never successfully exported" — which is why the first run
+   * after deploy legitimately exports everyone.
+   */
+  @Column({
+    name: 'biostar_row_hash',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  biostar_row_hash: string | null;
+
+  /**
+   * When this student's remark was last reconciled against BioStar.
+   *
+   * A remark deleted before the clearing fix shipped leaves no trace to act
+   * on: PostgreSQL is already blank, so the removal cannot be observed again
+   * and nothing would ever revisit the row. A bounded sweep uses this column
+   * to work through the roster a batch at a time, oldest first, then keeps
+   * itself current. NULL means never checked, so those rows are swept first.
+   */
+  @Column({
+    name: 'remarks_checked_at',
+    type: 'timestamp',
+    nullable: true,
+  })
+  remarks_checked_at: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

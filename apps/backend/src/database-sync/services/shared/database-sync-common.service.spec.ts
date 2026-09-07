@@ -73,8 +73,39 @@ describe('DatabaseSyncCommonService — activation window', () => {
       });
     });
 
-    it('writes nothing for a brand-new record that arrives inactive', () => {
-      expect(service.resolveActivationWindow(undefined, false, NOW)).toBeNull();
+    // Changed deliberately. This used to return null, on the reasoning that
+    // there was no active->inactive transition worth recording. But the CSV's
+    // disabled window is now anchored to `date_deactivated`, so a row without
+    // one falls back to "today" and looks different to BioStar every single
+    // day — re-exporting the entire disabled population daily and re-enrolling
+    // them on every device. Stamping the moment we first see someone inactive
+    // gives that window something stable to hang on.
+    it('stamps a deactivation date for a brand-new record that arrives inactive', () => {
+      expect(service.resolveActivationWindow(undefined, false, NOW)).toEqual({
+        date_deactivated: NOW,
+      });
+    });
+
+    it('stamps a deactivation date for a row that predates these columns', () => {
+      const existing = existingRow({
+        Campus_Entry: 'N',
+        date_deactivated: null,
+      });
+
+      expect(service.resolveActivationWindow(existing, false, NOW)).toEqual({
+        date_deactivated: NOW,
+      });
+    });
+
+    // The write-once rule: once stamped, never rewritten. Rewriting it every
+    // run would be the original drifting-date bug in a different column.
+    it('leaves an existing deactivation date alone', () => {
+      const existing = existingRow({
+        Campus_Entry: 'N',
+        date_deactivated: new Date('2024-01-01T00:00:00.000Z'),
+      });
+
+      expect(service.resolveActivationWindow(existing, false, NOW)).toBeNull();
     });
 
     it('restarts the 10-year window when an inactive record is re-activated', () => {

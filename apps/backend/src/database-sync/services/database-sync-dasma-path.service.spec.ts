@@ -386,12 +386,17 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     // THE REGRESSION TEST. Before the fix the CSV re-derived both dates from
-    // dayjs() every run, so day two exported an expiry one day later than
-    // day one for a record that had not changed at all.
-    it('exports the SAME expiry on two consecutive days for an unchanged record', async () => {
+    // dayjs() every run, so day two exported an expiry one day later than day
+    // one for a record that had not changed at all.
+    //
+    // Day two changes the surname so the row is exported again — an otherwise
+    // untouched record is no longer re-sent at all now, which is a stronger
+    // guarantee but would leave nothing to compare the dates against.
+    it('exports the SAME expiry on two consecutive days for a record whose window did not move', async () => {
       setClock('2026-08-26T08:00:00+08:00');
       await service.executeDatabaseSync('manual-day-1');
 
+      sourceRows = [sourceRow({ LastName: 'Dela Cruz-Reyes' })];
       setClock('2026-08-27T08:00:00+08:00');
       await service.executeDatabaseSync('manual-day-2');
 
@@ -1212,6 +1217,180 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       expect(studentRepo.byId('12100002').isArchived).toBe(true);
       expect(studentRepo.byId('12100001').isArchived).toBe(false);
+    });
+  });
+
+  // =====================================================================
+  // Only send BioStar what actually changed
+  //
+  // The reported defect: "khit wla nmn changes nag generate parin ng csv file
+  // tpos binato sa biostar kaya nag rere enroll sa mga devices ng madaming
+  // user". Every run exported the whole non-archived roster under
+  // `import_option: 2` (Overwrite), so BioStar marked every user modified and
+  // its Automatic User Synchronization re-transferred all of them to every
+  // connected device.
+  // =====================================================================
+  describe('changed-only export', () => {
+    const importCalls = () =>
+      (axios.post as jest.Mock).mock.calls.filter((c: unknown[]) =>
+        String(c[0]).includes('/api/users/csv_import'),
+      );
+    const uploadCalls = () =>
+      (axios.post as jest.Mock).mock.calls.filter((c: unknown[]) =>
+        String(c[0]).includes('/api/attachments'),
+      );
+
+    it('exports every row on the first run, because nothing has been sent yet', async () => {
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(latestCsv()).toHaveLength(2);
+      expect(importCalls()).toHaveLength(1);
+    });
+
+    // THE REGRESSION TEST for the reported defect.
+    it('sends nothing at all on a second run when nothing changed', async () => {
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      jest.clearAllMocks();
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(uploadCalls()).toHaveLength(0);
+      expect(importCalls()).toHaveLength(0);
+    });
+
+    it('exports only the row that changed', async () => {
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002', LastName: 'Reyes' }),
+      ];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(latestCsv().map((r) => r.user_id)).toEqual(['12100002']);
+    });
+
+    // A deactivated person's window used to be re-derived from dayjs() every
+    // run, so their row changed daily even though the person did not — which
+    // would defeat the hash and re-export the whole disabled population every
+    // single day.
+    it('exports a stable window for someone who stays deactivated', async () => {
+      sourceRows = [sourceRow({ Status: false })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      const dayOne = csvRowFor('12100001', 0);
+
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(importCalls()).toHaveLength(1); // run-1 only
+      expect(dayOne.expiry_datetime).toBeTruthy();
+    });
+
+    // Self-healing: a batch BioStar never accepted must not be recorded as
+    // sent, or the row would be silently skipped forever.
+    it('re-exports a row whose import failed', async () => {
+      (axios.post as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/api/attachments')) {
+          return { data: { filename: 'fake-upload.csv' } };
+        }
+        if (url.includes('/api/users/csv_import')) {
+          return { data: { Response: { code: '8' } } };
+        }
+        return { data: {} };
+      });
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      // BioStar recovers; the same unchanged row must still go out.
+      (axios.post as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/api/attachments')) {
+          return { data: { filename: 'fake-upload.csv' } };
+        }
+        if (url.includes('/api/users/csv_import')) {
+          return { data: { Response: { code: '0' } } };
+        }
+        return { data: {} };
+      });
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(latestCsv().map((r) => r.user_id)).toEqual(['12100001']);
+    });
+  });
+
+  // =====================================================================
+  // The card must never be blanked, and must never be re-fetched forever
+  // =====================================================================
+  describe('CSN handling', () => {
+    beforeEach(() => {
+      CONFIG.DASMA_CSV_FETCH_CARD_FROM_BIOSTAR = 'true';
+    });
+
+    it('persists a CSN fetched from BioStar instead of re-fetching it', async () => {
+      biostarDetails['12100001'] = {
+        user_id: '12100001',
+        cards: [{ card_id: '987654321' }],
+      };
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      expect(studentRepo.byId('12100001').Unique_ID).toBe('987654321');
+
+      (biostarApi.fetchBiostarUserDetailWithRetry as jest.Mock).mockClear();
+      sourceRows = [sourceRow({ LastName: 'Changed' })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.fetchBiostarUserDetailWithRetry).not.toHaveBeenCalled();
+      expect(csvRowFor('12100001').csn).toBe('987654321');
+    });
+
+    // Under import_option 2 an empty cell is a candidate to blank the card in
+    // BioStar. Skipping the row leaves BioStar holding whatever it already has,
+    // which is safe whichever way that behaviour actually falls.
+    it('omits the row entirely rather than exporting an empty csn', async () => {
+      biostarDetails['12100001'] = null;
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(latestCsv()).toHaveLength(0);
+    });
+
+    it('exports the stored card without calling BioStar at all', async () => {
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      await studentRepo.update(
+        { ID_Number: '12100001' },
+        { Unique_ID: '1234567890' },
+      );
+
+      (biostarApi.fetchBiostarUserDetailWithRetry as jest.Mock).mockClear();
+      sourceRows = [sourceRow({ LastName: 'Changed' })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.fetchBiostarUserDetailWithRetry).not.toHaveBeenCalled();
+      expect(csvRowFor('12100001').csn).toBe('1234567890');
     });
   });
 
