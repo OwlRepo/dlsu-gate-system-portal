@@ -1656,13 +1656,24 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     if (existing.Name !== incoming.Name) {
       changedFields.Name = incoming.Name;
     }
-    if (existing.Lived_Name !== incoming.Lived_Name) {
+    // Photo and Lived_Name are NOT in the Dasma source view — `normalizeRecord`
+    // hands them down as null on every row (commit 3f27b9a: "Set Photo,
+    // Unique_ID, Lived_Name to null for new schema (not available)"). A null
+    // here therefore means "the source has nothing to say", never "delete what
+    // is stored". Without these guards every source sync wiped the photo that
+    // `syncFromBiostar` had just fetched, so the gate screens fell back to the
+    // default avatar. Guarded the same way `Unique_ID` already is below — that
+    // asymmetry is exactly why the card survived and the photo did not.
+    if (
+      incoming.Lived_Name != null &&
+      existing.Lived_Name !== incoming.Lived_Name
+    ) {
       changedFields.Lived_Name = incoming.Lived_Name;
     }
     if (existing.Remarks !== incoming.Remarks) {
       changedFields.Remarks = incoming.Remarks;
     }
-    if (existing.Photo !== incoming.Photo) {
+    if (incoming.Photo != null && existing.Photo !== incoming.Photo) {
       changedFields.Photo = incoming.Photo;
     }
     if (existing.Campus_Entry !== incoming.Campus_Entry) {

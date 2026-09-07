@@ -1163,4 +1163,66 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(studentRepo.byId('12100001').isArchived).toBe(false);
     });
   });
+
+  // =====================================================================
+  // Photo and Lived_Name must survive a source sync
+  //
+  // The Dasma source view has no photo column and no lived-name column —
+  // documented in the legacy `.env.example` schema block, and stated in
+  // commit 3f27b9a: "Set Photo, Unique_ID, Lived_Name to null for new schema
+  // (not available)". `normalizeRecord` therefore hands both fields down as
+  // null on every row.
+  //
+  // "Not available from the source" must mean "leave whatever is stored
+  // alone", never "overwrite the stored value with null". `Unique_ID` already
+  // gets that treatment; `Photo` and `Lived_Name` did not, so every source
+  // sync destroyed the photo the BioStar sync had just fetched.
+  // =====================================================================
+  describe('photo and lived name preservation', () => {
+    /** Stands in for what syncFromBiostar writes after pulling user detail. */
+    const seedBiostarSuppliedFields = (idNumber: string) =>
+      studentRepo.update(
+        { ID_Number: idNumber },
+        {
+          Photo: '/9j/4AAQSkZJRgABAQAAAQ',
+          Lived_Name: 'Johnny',
+          Unique_ID: '1234567890',
+        },
+      );
+
+    it('keeps a photo that BioStar supplied when the source syncs again', async () => {
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      await seedBiostarSuppliedFields('12100001');
+
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(studentRepo.byId('12100001').Photo).toBe('/9j/4AAQSkZJRgABAQAAAQ');
+    });
+
+    it('keeps a BioStar-supplied lived name when the source syncs again', async () => {
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      await seedBiostarSuppliedFields('12100001');
+
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(studentRepo.byId('12100001').Lived_Name).toBe('Johnny');
+    });
+
+    // Regression guard for the asymmetry that caused this: Unique_ID was
+    // guarded, Photo was not. Both must now behave identically.
+    it('keeps the card, exactly as it always did', async () => {
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      await seedBiostarSuppliedFields('12100001');
+
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(studentRepo.byId('12100001').Unique_ID).toBe('1234567890');
+    });
+  });
 });
