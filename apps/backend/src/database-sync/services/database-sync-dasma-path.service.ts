@@ -664,7 +664,14 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     row: Record<string, string>,
     headers: { id: string; title: string }[],
   ): string {
-    const payload = headers.map((h) => row[h.id] ?? '').join(' ');
+    // NUL-delimited, written as an escape so it is visible in a diff: a raw
+    // NUL byte in the source renders as blank in most tools and reads as a
+    // space. A space would be wrong here — spaces occur inside `name`,
+    // inside `user_title` (free text from the source `Group`) and inside
+    // `Remarks`, so the field boundaries would be ambiguous and two
+    // different rows could hash alike. That row would then be silently
+    // never exported and stay stale in BioStar forever.
+    const payload = headers.map((h) => row[h.id] ?? '').join('\u0000');
     return createHash('sha256').update(payload).digest('hex');
   }
 

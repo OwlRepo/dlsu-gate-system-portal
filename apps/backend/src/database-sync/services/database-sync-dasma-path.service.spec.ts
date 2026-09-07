@@ -1169,6 +1169,60 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(second.expiryFallbackUsed.ids).toEqual([]);
     });
 
+    // These are the numbers a human reads off staging to decide whether the
+    // re-enroll storm actually stopped. A renamed or missing key here costs
+    // the entire signal, silently — so the shape is pinned, not just the
+    // behaviour it describes.
+    it('reports what was exported versus suppressed', async () => {
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      const [first, second] = diagnosticsWritten();
+
+      expect(first.csvExport).toEqual(
+        expect.objectContaining({
+          rowsEmitted: 2,
+          rowsSuppressedUnchanged: 0,
+          batchesSkippedNoChanges: 0,
+          csnPersistedFromBiostar: 0,
+        }),
+      );
+      expect(first.csvExport.csnUnresolvedRowsSkipped.ids).toEqual([]);
+
+      // Second run: nothing changed, so nothing goes out and the batch is
+      // skipped outright rather than uploaded as a header-only file.
+      expect(second.csvExport).toEqual(
+        expect.objectContaining({
+          rowsEmitted: 0,
+          rowsSuppressedUnchanged: 2,
+          batchesSkippedNoChanges: 1,
+        }),
+      );
+      expect(second.csvImport).toEqual([]);
+    });
+
+    it('reports the remark sweep and clearing counters', async () => {
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      const [first] = diagnosticsWritten();
+      expect(first.remarks).toEqual(
+        expect.objectContaining({
+          attempted: expect.any(Number),
+          succeeded: expect.any(Number),
+          sweptThisRun: expect.any(Number),
+        }),
+      );
+      expect(first.remarks.failedIds.ids).toEqual([]);
+    });
+
     it('names the users BioStar listed that PostgreSQL does not hold', async () => {
       biostarPages = [
         {
