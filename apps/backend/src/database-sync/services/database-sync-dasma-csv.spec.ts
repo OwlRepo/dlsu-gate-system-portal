@@ -243,11 +243,6 @@ describe('Dasma CSV — rendered bytes and volume', () => {
       SOURCE_DB_HOST: 'localhost',
       SOURCE_DB_PORT: '1433',
       SOURCE_DB_TABLE: 'dbo.FakeRoster',
-      // Production leaves this unset and the code defaults it to 'true'. It was
-      // 'false' here, so this suite exercised a configuration the deployment
-      // never runs — and one now known to destroy cards, since a blank `csn`
-      // takes a user from card_count 1 to 0.
-      DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'true',
       BIOSTAR_DETAIL_CONCURRENCY: '4',
     };
 

@@ -656,13 +656,20 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
    * nicety, it is what stops the roster sync deleting cards that were enrolled
    * in the BioStar UI. A cell is only ever left blank when we positively know
    * there is no card to lose.
+   *
+   * The lookup is unconditional. It used to sit behind
+   * `DASMA_CSV_FETCH_CARD_FROM_BIOSTAR`, which existed to avoid one GET per
+   * card-less student per run — but the card is written to `Unique_ID` the
+   * first time it is found, so that cost was already one-time. Switching the
+   * lookup off left only bad options: send a blank and destroy cards, or hold
+   * the row back and stop updating those people at all. A flag whose only safe
+   * value is "on" is a trap, so it is gone.
    */
   private async resolveDasmaCsnForCsvRow(
     userId: string,
     existing: Student | undefined,
     token: string,
     sessionId: string,
-    fetchFromBiostar: boolean,
     rateLimitTracker: { count: number },
   ): Promise<{ csn: string; unresolved: boolean; fetched: boolean }> {
     return this.resolveCsn(
@@ -670,7 +677,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       existing,
       token,
       sessionId,
-      fetchFromBiostar,
       rateLimitTracker,
     );
   }
@@ -748,24 +754,11 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     existing: Student | undefined,
     token: string,
     sessionId: string,
-    fetchFromBiostar: boolean,
     rateLimitTracker: { count: number },
   ): Promise<{ csn: string; unresolved: boolean; fetched: boolean }> {
     const fromDb = this.normalizeUniqueIdValue(existing?.Unique_ID);
     if (fromDb) {
       return { csn: fromDb, unresolved: false, fetched: false };
-    }
-    if (!fetchFromBiostar) {
-      // Card resolution switched off and PostgreSQL has no card either, so we
-      // know nothing about whether this person holds one.
-      //
-      // That used to let an empty cell go out. It must not: measured against
-      // the live server on 2026-09-10, a one-row import with a blank `csn`
-      // under `import_option: 2` took a user from `card_count: 1` to
-      // `card_count: 0`. A blank cell destroys a card, so sending one blind is
-      // a coin flip on somebody's physical access. Hold the row back instead —
-      // BioStar keeps whatever it already had, which is always the safe answer.
-      return { csn: '', unresolved: true, fetched: false };
     }
     const { detail, definitive } =
       await this.biostarApiService.fetchBiostarUserDetail(
@@ -1207,9 +1200,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           (r) => r.isArchived !== true,
         );
 
-        const fetchCardsFromBiostar =
-          (this.configService.get('DASMA_CSV_FETCH_CARD_FROM_BIOSTAR') ??
-            'true') !== 'false';
         const csnConcurrency = Math.max(
           1,
           parseInt(
@@ -1382,7 +1372,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 existingMap.get(userId),
                 csnToken,
                 csnSessionId,
-                fetchCardsFromBiostar,
                 csnRateLimitTracker,
               );
             if (!hadDbCsn && csn) {
@@ -1458,8 +1447,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         // upsert keeps, so the exported row and the roster row never disagree
         // about which variant is canonical.
         const dedupedByUserId = new Map<string, Record<string, string>>();
-        for (const row of candidateRecords) dedupedByUserId.set(row.user_id, row);
-        const duplicateRowsDropped = candidateRecords.length - dedupedByUserId.size;
+        for (const row of candidateRecords)
+          dedupedByUserId.set(row.user_id, row);
+        const duplicateRowsDropped =
+          candidateRecords.length - dedupedByUserId.size;
         if (duplicateRowsDropped > 0) {
           csvDuplicateRowsDropped += duplicateRowsDropped;
           this.logger.warn(
@@ -1491,9 +1482,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           continue;
         }
 
-        if (csnFilledFromApi > 0 || fetchCardsFromBiostar) {
+        if (csnFilledFromApi > 0) {
           this.logger.log(
-            `[Batch ${batchNumber}] Dasma CSV CSN: filledFromBiostarApi=${csnFilledFromApi}, fetchEnabled=${fetchCardsFromBiostar}`,
+            `[Batch ${batchNumber}] Dasma CSV CSN: filledFromBiostarApi=${csnFilledFromApi}`,
           );
         }
 
@@ -2198,7 +2189,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
    */
   private flattenCsvCell(value: string | null | undefined): string {
     if (value == null) return '';
-    return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return value
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private formatBiostarDatetime(value: Date | null): string | null {

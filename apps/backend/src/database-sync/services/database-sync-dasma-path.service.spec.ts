@@ -210,11 +210,6 @@ describe('DatabaseSyncDasmaPathService', () => {
     SOURCE_DB_PORT: '1433',
     SOURCE_DB_TABLE: 'dbo.FakeRoster',
     // Off by default so the CSN path does not fan out to BioStar per row.
-    // Matches production, where the flag is absent and the code defaults it to
-    // 'true' (`?? 'true'`). It used to be 'false' here, so most of this suite
-    // exercised a configuration the deployment never runs — and one that is now
-    // known to be unsafe, since a blank `csn` destroys a card.
-    DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'true',
     BIOSTAR_DETAIL_CONCURRENCY: '4',
   });
 
@@ -1825,9 +1820,7 @@ describe('DatabaseSyncDasmaPathService', () => {
   // The card must never be blanked, and must never be re-fetched forever
   // =====================================================================
   describe('CSN handling', () => {
-    beforeEach(() => {
-      CONFIG.DASMA_CSV_FETCH_CARD_FROM_BIOSTAR = 'true';
-    });
+    beforeEach(() => {});
 
     it('persists a CSN fetched from BioStar instead of re-fetching it', async () => {
       biostarDetails['12100001'] = {
@@ -1909,45 +1902,28 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     /**
-     * OBSERVED, no longer assumed: on 2026-09-10 a single-row import with a
-     * blank `csn` under `import_option: 2` took a live BioStar user from
-     * `card_count: 1, cards: ["7710000016"]` to `card_count: 0, cards: []`.
-     *
-     * So a blank cell really does destroy a card. With card resolution switched
-     * off we know nothing about who holds one, which makes every blank cell a
-     * coin flip on someone's physical access. The row is held back instead —
-     * BioStar then keeps whatever it already had.
+     * The lookup is unconditional now, so a student with no stored card always
+     * causes exactly one BioStar call — never a blind blank cell. A blank cell
+     * destroys a card: measured on 2026-09-10, one import with an empty `csn`
+     * took a live user from `card_count: 1` to `card_count: 0`.
      */
-    it('holds the row back rather than sending a blank csn with lookups disabled', async () => {
-      CONFIG.DASMA_CSV_FETCH_CARD_FROM_BIOSTAR = 'false';
+    it('always asks BioStar when PostgreSQL has no card stored', async () => {
+      biostarDetails['12100001'] = {
+        user_id: '12100001',
+        cards: [{ card_id: '4242424242' }],
+      };
       setClock('2026-08-26T08:00:00+08:00');
 
       await service.executeDatabaseSync('run-1');
 
-      expect(latestCsv()).toHaveLength(0);
-      // And it is named, so a held-back row is never silent.
-      const diag = (fsMock.writeFileSync as jest.Mock).mock.calls
-        .filter(([path]) => String(path).includes('diagnostics'))
-        .map(([, body]) => JSON.parse(String(body)))
-        .at(-1);
-      expect(diag.csvExport.csnUnresolvedRowsSkipped.ids).toEqual(['12100001']);
-    });
-
-    it('still exports a stored card when lookups are disabled', async () => {
-      CONFIG.DASMA_CSV_FETCH_CARD_FROM_BIOSTAR = 'false';
-      studentRepo.rows.push({
-        ID_Number: '12100001',
-        Name: 'Dela Cruz, Juan',
-        Campus_Entry: 'Y',
-        isArchived: false,
-        Unique_ID: '5551234',
-        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
-      } as Student);
-      setClock('2026-08-26T08:00:00+08:00');
-
-      await service.executeDatabaseSync('run-1');
-
-      expect(csvRowFor('12100001').csn).toBe('5551234');
+      expect(biostarApi.fetchBiostarUserDetail).toHaveBeenCalledWith(
+        '12100001',
+        't0ken',
+        's3ss10n',
+        3,
+        expect.anything(),
+      );
+      expect(csvRowFor('12100001').csn).toBe('4242424242');
     });
 
     it('exports the stored card without calling BioStar at all', async () => {

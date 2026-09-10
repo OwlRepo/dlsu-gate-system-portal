@@ -97,11 +97,6 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       BIOSTAR_API_BASE_URL: baseUrl,
       BIOSTAR_API_LOGIN_ID: 'fake',
       BIOSTAR_API_PASSWORD: 'fake',
-      // Production leaves this unset and the code defaults it to 'true'. It was
-      // 'false' here, so this suite exercised a configuration the deployment
-      // never runs — and one now known to destroy cards, since a blank `csn`
-      // takes a user from card_count 1 to 0.
-      DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'true',
       BIOSTAR_DETAIL_CONCURRENCY: '2',
       ...overrides,
     };
@@ -261,9 +256,7 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       user_id: '12100001',
       cards: [{ card_id: '9876543210' }],
     };
-    service = await makeService({
-      DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'true',
-    });
+    service = await makeService({});
 
     await service.executeDatabaseSync('e2e-1');
 
