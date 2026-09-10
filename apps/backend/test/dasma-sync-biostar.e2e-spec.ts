@@ -97,7 +97,11 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       BIOSTAR_API_BASE_URL: baseUrl,
       BIOSTAR_API_LOGIN_ID: 'fake',
       BIOSTAR_API_PASSWORD: 'fake',
-      DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'false',
+      // Production leaves this unset and the code defaults it to 'true'. It was
+      // 'false' here, so this suite exercised a configuration the deployment
+      // never runs — and one now known to destroy cards, since a blank `csn`
+      // takes a user from card_count 1 to 0.
+      DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'true',
       BIOSTAR_DETAIL_CONCURRENCY: '2',
       ...overrides,
     };

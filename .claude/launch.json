@@ -4,8 +4,24 @@
     {
       "name": "portal-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--workspace", "apps/portal-web"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace",
+        "apps/portal-web"
+      ],
       "port": 3000
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace",
+        "apps/backend"
+      ],
+      "port": 10580
     }
   ]
 }
