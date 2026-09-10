@@ -44,6 +44,30 @@ csvImport : []
 That is the direct answer to *"khit wla nmn changes nag generate parin ng csv file
 tpos binato sa biostar kaya nag rere enroll sa mga devices ng madaming user."*
 
+### Only changed records are sent — measured end to end
+
+A four-step cycle on the live sandbox, 34 students, changing exactly one of them:
+
+| Step | Source state | Rows in the CSV | Sent to BioStar |
+|---|---|---|---|
+| 1 | nothing changed | **0** (34 suppressed) | nothing — no file uploaded at all |
+| 2 | one remark added | **1** (33 suppressed) | 1 record |
+| 3 | that remark removed | **1** (33 suppressed) | 1 record + 1 clear |
+| 4 | nothing changed | **0** (34 suppressed) | nothing |
+
+The file sent at step 2, in full — one header line and one record, and it is the
+record that changed:
+
+```
+user_id,name,department,user_title,user_group,Remarks,csn,start_datetime,expiry_datetime,original_campus_entry
+9933993,Shirley Cereno T,DLSU,EMPLOYEE,All Users,SINGLE ROW TEST,,2026-09-09 00:00:00.000,2036-09-10 00:00:00.000,Y
+```
+
+So BioStar only ever marks as modified the people who actually changed, and only
+those people are re-transferred to the devices. When nothing changed, no
+attachment is uploaded and no import is called — the run touches BioStar not at
+all.
+
 ---
 
 ## What was actually wrong
