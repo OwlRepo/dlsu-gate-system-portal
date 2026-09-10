@@ -169,13 +169,31 @@ from the stored column, so it stays stable run to run.
 
 ## Verification
 
-- **243 unit tests + 22 end-to-end tests**, all green. Every fix has a regression
+- **Every fix was exercised against the real BioStar and the real source
+  database.** Not one rests on unit tests alone.
+- **242 unit tests + 22 end-to-end tests**, all green. Every fix has a regression
   test that fails against the previous code.
 - **Live scenario matrix** — 23 seeded scenarios across MSSQL, BioStar and
   PostgreSQL, run before the fixes and again after. Harness committed at
   `apps/backend/scripts/scenario/`, with baseline capture and restore.
 - **Sandbox restored** — MSSQL back to 34 rows, PostgreSQL to 36 students, zero
   seeded users left in BioStar, nothing lost.
+
+### The redundant-update skip, verified live
+
+The one fix without an isolated live check has one now. A pending clear was armed
+against a student whose BioStar remark was already empty:
+
+| Signal | Result |
+|---|---|
+| Run reported | `attempted: 1, succeeded: 1` |
+| BioStar `last_modified` | **22729 before, 22729 after — unchanged** |
+| `Cleared Remarks for user` in the log | **absent** for this student, present for every real clear |
+| Pending flag afterwards | cleared |
+
+An unchanged modification counter and a missing write log, on a run that reported
+success, is the skip doing exactly its job: recognise the field is already blank,
+send nothing, and stop retrying.
 
 ```bash
 TZ=Asia/Manila bun --cwd apps/backend run test
