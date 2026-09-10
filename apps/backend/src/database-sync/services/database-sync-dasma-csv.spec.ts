@@ -243,7 +243,11 @@ describe('Dasma CSV — rendered bytes and volume', () => {
       SOURCE_DB_HOST: 'localhost',
       SOURCE_DB_PORT: '1433',
       SOURCE_DB_TABLE: 'dbo.FakeRoster',
-      DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'false',
+      // Production leaves this unset and the code defaults it to 'true'. It was
+      // 'false' here, so this suite exercised a configuration the deployment
+      // never runs — and one now known to destroy cards, since a blank `csn`
+      // takes a user from card_count 1 to 0.
+      DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'true',
       BIOSTAR_DETAIL_CONCURRENCY: '4',
     };
 
@@ -336,6 +340,14 @@ describe('Dasma CSV — rendered bytes and volume', () => {
               .mockResolvedValue({ token: 't0ken', sessionId: 's3ss10n' }),
             getApiBaseUrl: jest.fn().mockReturnValue('https://biostar.fake'),
             fetchBiostarUserDetailWithRetry: jest.fn(async () => null),
+            // BioStar answers definitively that it has never seen these users,
+            // which is the ordinary case for a roster of people not yet
+            // enrolled: an empty `csn` for them can clear nothing.
+            fetchBiostarUserDetail: jest.fn(async () => ({
+              detail: null,
+              status: 400,
+              definitive: true,
+            })),
             clearUserCustomField: jest.fn().mockResolvedValue(true),
           },
         },
@@ -402,7 +414,7 @@ describe('Dasma CSV — rendered bytes and volume', () => {
     await service.executeDatabaseSync('run-1');
 
     expect(latestLines()[1]).toBe(
-      '12100001,Dela Cruz Juan,DLSU,STUDENT,All Users,,,2026-08-26 08:00:00.000,2036-08-26 08:00:00.000,Y',
+      '12100001,Dela Cruz Juan,DLSU,STUDENT,All Users,,,2026-08-25 00:00:00.000,2036-08-26 00:00:00.000,Y',
     );
   });
 
@@ -428,7 +440,7 @@ describe('Dasma CSV — rendered bytes and volume', () => {
     await service.executeDatabaseSync('run-2');
 
     // Two adjacent commas — Remarks then csn, both empty. NOT `,"",`.
-    expect(latestLines()[1]).toContain('All Users,,,2026-08-26');
+    expect(latestLines()[1]).toContain('All Users,,,2026-08-25');
   });
 
   // ------------------------------------------------------------------
@@ -449,16 +461,41 @@ describe('Dasma CSV — rendered bytes and volume', () => {
     expect(latestLines()[1]).toContain(',"He said ""hi""",');
   });
 
-  // A remark with a newline stays inside one quoted field, but the file then
-  // has more physical lines than records. Recorded rather than asserted as
-  // desirable: whether BioStar's parser accepts it is unknown.
-  it('keeps an embedded newline inside a quoted field', async () => {
+  /**
+   * It is no longer unknown whether BioStar's parser accepts a quoted embedded
+   * newline: on 2026-09-10 a live import rejected exactly that row with
+   * `User ID Type Mismatch.` — it read the continuation line as a new record
+   * whose first field was the tail of the remark. Our writer was correct;
+   * BioStar simply is not RFC-4180 for this case.
+   *
+   * So a newline is flattened to a space before the cell is written. The remark
+   * keeps its words, the record keeps its single physical line, and the row
+   * imports instead of being silently dropped from the batch.
+   */
+  it('flattens a newline in a remark so the record stays on one line', async () => {
     sourceRows = [sourceRow({ Remarks: 'line1\nline2' })];
     await service.executeDatabaseSync('run-1');
 
     const text = latestCsvText();
-    expect(text).toContain('"line1\nline2"');
-    expect(text.split('\n')).toHaveLength(4); // header + 2 physical + trailing
+    expect(text).toContain('line1 line2');
+    expect(text).not.toContain('\n"');
+    expect(text.split('\n')).toHaveLength(3); // header + 1 record + trailing
+  });
+
+  it('flattens a Windows line ending in a remark too', async () => {
+    sourceRows = [sourceRow({ Remarks: 'line1\r\nline2' })];
+    await service.executeDatabaseSync('run-1');
+
+    expect(latestCsvText()).toContain('line1 line2');
+    // header + the one record + the trailing newline's empty tail
+    expect(latestLines()).toHaveLength(3);
+  });
+
+  it('still quotes a remark that only contains a comma', async () => {
+    sourceRows = [sourceRow({ Remarks: 'late, again' })];
+    await service.executeDatabaseSync('run-1');
+
+    expect(latestCsvText()).toContain('"late, again"');
   });
 
   it('strips punctuation from names, so a name never needs quoting', async () => {
@@ -483,7 +520,7 @@ describe('Dasma CSV — rendered bytes and volume', () => {
     jest.setSystemTime(new Date('2028-02-29T08:00:00+08:00'));
     await service.executeDatabaseSync('run-1');
 
-    expect(latestLines()[1]).toContain('2038-02-28 08:00:00.000');
+    expect(latestLines()[1]).toContain('2038-02-28 00:00:00.000');
   });
 
   it('exports a deactivated student with a window that already expired', async () => {

@@ -22,7 +22,15 @@ export class SyncController {
     description:
       'Returns complete list of non-archived students for mobile database synchronization',
   })
-  @CacheTTL(3600000) // 1 hour
+  // 5 minutes, not the hour this used to be.
+  //
+  // This payload carries the photo the BioStar pull writes into PostgreSQL, so
+  // an hour of caching means a newly synced photo is invisible to every mobile
+  // device for up to an hour — which is indistinguishable, from the device, from
+  // the photo never syncing at all. That is what the "Data Transfer" tracker
+  // describes. Still cached, because the response is the entire roster and
+  // serving it uncached on every pull is its own problem.
+  @CacheTTL(300000)
   @ApiResponse({
     status: 200,
     description: 'Successfully retrieved students',

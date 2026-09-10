@@ -80,7 +80,15 @@ export class BiostarApiService {
             ?.name === fieldName,
       );
       // Already absent or already blank — the desired end state.
-      if (!target || (target as { item?: unknown }).item === '') {
+      //
+      // A field this code has ALREADY cleared comes back from the live server
+      // with no `item` key at all (observed 2026-09-10: the entry is just
+      // `{ user_id, custom_field, size: "0" }`). So `item === ''` alone never
+      // matches our own successful clear, and every later run re-issued a PUT
+      // that could not change anything. `== null` covers both the missing key
+      // and an explicit null.
+      const item = (target as { item?: unknown } | undefined)?.item;
+      if (!target || item === '' || item == null) {
         return true;
       }
 
@@ -185,13 +193,38 @@ export class BiostarApiService {
     }
   }
 
-  async fetchBiostarUserDetailWithRetry(
+  /**
+   * Fetches one user's detail and reports WHY it came back empty.
+   *
+   * `definitive` is the whole point. A `400`/`404` means BioStar looked and
+   * genuinely does not have this user; anything else — a timeout, a `5xx`, a
+   * `429` that outlived its retries — means we simply do not know. Two callers
+   * have to act on opposite sides of that line:
+   *
+   *   - `sweepUncheckedRemarks` must stamp `remarks_checked_at` for a user
+   *     BioStar does not have. Without that the sweep re-checks the same rows
+   *     on every run forever and never drains, which is what it was built to do.
+   *   - `resolveCsn` must let a brand-new student through with an empty `csn`.
+   *     There is no card to blank on a user BioStar has never seen, and
+   *     dropping the row instead deadlocks them: they cannot be enrolled
+   *     because they are not already enrolled.
+   *
+   * Collapsing both into `null` is what made those two bugs possible, so the
+   * distinction lives here rather than being re-derived at each call site.
+   */
+  async fetchBiostarUserDetail(
     userId: string,
     token: string,
     sessionId: string,
     maxRetries = 3,
     rateLimitTracker?: { count: number },
-  ): Promise<Record<string, unknown> | null> {
+  ): Promise<{
+    detail: Record<string, unknown> | null;
+    status: number | null;
+    definitive: boolean;
+  }> {
+    let lastStatus: number | null = null;
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const response = await axios.get(
@@ -211,12 +244,19 @@ export class BiostarApiService {
 
         const data = response.data;
         const user = data?.User ?? data;
-        return (user && typeof user === 'object' ? user : {}) as Record<
-          string,
-          unknown
-        >;
+        return {
+          detail: (user && typeof user === 'object' ? user : {}) as Record<
+            string,
+            unknown
+          >,
+          status: response.status ?? 200,
+          definitive: true,
+        };
       } catch (err) {
-        const status = axios.isAxiosError(err) ? err.response?.status : null;
+        const status = axios.isAxiosError(err)
+          ? (err.response?.status ?? null)
+          : null;
+        lastStatus = status;
         const isRetryable =
           status === 429 ||
           (status != null && status >= 500) ||
@@ -235,16 +275,45 @@ export class BiostarApiService {
             maxDelay,
           );
           await new Promise((r) => setTimeout(r, delay));
-        } else {
-          this.logger.warn(
-            `[Dasma Biostar] Detail fetch failed for user ${userId} (attempt ${attempt + 1}/${maxRetries}):`,
-            axios.isAxiosError(err) ? err.message : err,
-          );
-          return null;
+          continue;
         }
+
+        this.logger.warn(
+          `[Dasma Biostar] Detail fetch failed for user ${userId} (attempt ${attempt + 1}/${maxRetries}, status ${status ?? 'none'}):`,
+          axios.isAxiosError(err) ? err.message : err,
+        );
+        // Only an explicit "no such user" is an answer. Everything else,
+        // retries included, leaves the question open.
+        return {
+          detail: null,
+          status,
+          definitive: status === 400 || status === 404,
+        };
       }
     }
-    return null;
+
+    return { detail: null, status: lastStatus, definitive: false };
+  }
+
+  /**
+   * Back-compatible wrapper: the detail, or null for any kind of failure.
+   * Callers that genuinely cannot act on the difference keep using this.
+   */
+  async fetchBiostarUserDetailWithRetry(
+    userId: string,
+    token: string,
+    sessionId: string,
+    maxRetries = 3,
+    rateLimitTracker?: { count: number },
+  ): Promise<Record<string, unknown> | null> {
+    const { detail } = await this.fetchBiostarUserDetail(
+      userId,
+      token,
+      sessionId,
+      maxRetries,
+      rateLimitTracker,
+    );
+    return detail;
   }
 
   getApiBaseUrl(): string {

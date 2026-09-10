@@ -25,6 +25,9 @@ import { BiostarApiService } from './shared/biostar-api.service';
 /** The datetime format BioStar's CSV import accepts. */
 const BIOSTAR_DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSS';
 
+/** Mirrors the same constant in the common service, which owns the stored window. */
+const ACTIVATION_VALIDITY_YEARS = 10;
+
 @Injectable()
 export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   private readonly logger = new Logger(DatabaseSyncDasmaPathService.name);
@@ -532,17 +535,31 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       const checkedAt = new Date();
 
       for (const student of unchecked) {
-        const detail =
-          await this.biostarApiService.fetchBiostarUserDetailWithRetry(
+        const { detail, definitive } =
+          await this.biostarApiService.fetchBiostarUserDetail(
             student.ID_Number,
             token,
             sessionId,
             3,
             rateLimitTracker,
           );
-        // Leave the stamp off on a failed lookup so the row is retried rather
-        // than quietly written off as checked.
-        if (!detail) continue;
+
+        // Leave the stamp off only when the answer is genuinely unknown — a
+        // timeout, a 5xx — so the row comes back around next run.
+        if (!detail && !definitive) continue;
+
+        // A definitive 400/404 IS an answer: BioStar does not have this person,
+        // so there is no remark over there to clear and the row is finished
+        // with. Skipping the stamp here is what stopped the sweep draining —
+        // those rows were re-checked on every run forever, which defeats the
+        // whole self-terminating design.
+        if (!detail) {
+          await this.studentRepository.update(
+            { ID_Number: student.ID_Number },
+            { remarks_checked_at: checkedAt },
+          );
+          continue;
+        }
 
         const biostarRemark = this.extractBiostarCustomField(detail, 'Remarks');
         const postgresRemark = student.Remarks?.trim() || null;
@@ -630,8 +647,15 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   }
 
   /**
-   * When Biostar CSV import uses overwrite (import_option 2), including the current
-   * CSN in the row prevents clearing cards enrolled only in Biostar UI.
+   * Resolves the `csn` cell for one CSV row.
+   *
+   * Under `import_option: 2` a blank `csn` DESTROYS the user's card — measured
+   * against the live server on 2026-09-10, where a single import with a blank
+   * cell took a user from `card_count: 1, cards: ["7710000016"]` to
+   * `card_count: 0, cards: []`. So carrying the current CSN through is not a
+   * nicety, it is what stops the roster sync deleting cards that were enrolled
+   * in the BioStar UI. A cell is only ever left blank when we positively know
+   * there is no card to lose.
    */
   private async resolveDasmaCsnForCsvRow(
     userId: string,
@@ -732,24 +756,42 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       return { csn: fromDb, unresolved: false, fetched: false };
     }
     if (!fetchFromBiostar) {
-      // Card resolution deliberately switched off: we know nothing either way,
-      // so behave as before and let the empty cell go out.
-      return { csn: '', unresolved: false, fetched: false };
-    }
-    const detail = await this.biostarApiService.fetchBiostarUserDetailWithRetry(
-      userId,
-      token,
-      sessionId,
-      3,
-      rateLimitTracker,
-    );
-    if (!detail) {
-      // BioStar was asked and could not answer. This is the only case where an
-      // empty `csn` is dangerous: under `import_option: 2` a blank cell is a
-      // candidate to blank a card the person really holds. The caller drops the
-      // row instead. Someone BioStar DOES answer for who simply has no card is
-      // a different thing — a blank there can clear nothing.
+      // Card resolution switched off and PostgreSQL has no card either, so we
+      // know nothing about whether this person holds one.
+      //
+      // That used to let an empty cell go out. It must not: measured against
+      // the live server on 2026-09-10, a one-row import with a blank `csn`
+      // under `import_option: 2` took a user from `card_count: 1` to
+      // `card_count: 0`. A blank cell destroys a card, so sending one blind is
+      // a coin flip on somebody's physical access. Hold the row back instead —
+      // BioStar keeps whatever it already had, which is always the safe answer.
       return { csn: '', unresolved: true, fetched: false };
+    }
+    const { detail, definitive } =
+      await this.biostarApiService.fetchBiostarUserDetail(
+        userId,
+        token,
+        sessionId,
+        3,
+        rateLimitTracker,
+      );
+    if (!detail && !definitive) {
+      // BioStar was asked and could not answer — a timeout, a 5xx, a 429 that
+      // outlived its retries. This is the ONLY case where an empty `csn` is
+      // dangerous: under `import_option: 2` a blank cell is a candidate to
+      // blank a card the person really holds, and we do not know whether they
+      // hold one. The caller drops the row and BioStar keeps what it has.
+      return { csn: '', unresolved: true, fetched: false };
+    }
+    if (!detail) {
+      // A definitive 400/404: BioStar looked and has never heard of this
+      // person. They are precisely who the CSV exists to CREATE, and an empty
+      // `csn` cannot blank a card on a user who does not exist yet. Treating
+      // this like "could not be reached" deadlocked every new student out of
+      // enrolment — they could not be created because they were not already
+      // there. Observed live 2026-09-10: 13 of 14 new students silently
+      // dropped.
+      return { csn: '', unresolved: false, fetched: false };
     }
     const card = this.extractBiostarCardValue(
       detail as Record<string, unknown>,
@@ -823,7 +865,16 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // after deploy: the window is persisted earlier in the same run than the
       // CSV build, and existingMap is refreshed from the database in between.
       // Anything here means that ordering has broken.
+      /** Extra CSV lines dropped because the source repeated an id. */
+      let csvDuplicateRowsDropped = 0;
       const expiryFallbackUsed: string[] = [];
+      /**
+       * Disabled rows whose window had to be anchored to today because
+       * `date_deactivated` was never stamped. Must stay empty: anything here
+       * re-exports every single day, which is the churn this path exists to
+       * stop.
+       */
+      const disabledAnchorFallbackUsed: string[] = [];
 
       // IDs whose remark went from a value to empty this run. These need an
       // explicit BioStar PUT; the CSV cannot clear a custom field.
@@ -1182,7 +1233,16 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             const name = this.commonService.removeSpecialChars(
               record.Name?.trim() || '',
             );
-            const remarks = record.Remarks?.trim() || '';
+            // Flattened, not quoted-and-preserved.
+            //
+            // Our writer quotes an embedded newline correctly per RFC 4180,
+            // but BioStar's importer does not read it that way: on 2026-09-10 a
+            // live import rejected such a row with `User ID Type Mismatch.`,
+            // having treated the continuation line as a fresh record whose
+            // first column was the tail of the remark. One bad remark silently
+            // costs that person their row in the batch. `Remarks` is free text
+            // a clerk types, so a pasted newline is entirely plausible.
+            const remarks = this.flattenCsvCell(record.Remarks);
             const validationErrors = [];
             if (!userId) {
               validationErrors.push('Empty ID');
@@ -1240,19 +1300,45 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             const disabledAnchor = stored?.date_deactivated
               ? dayjs(stored.date_deactivated).tz('Asia/Manila').startOf('day')
               : currentDate;
+            if (isDisabled && !stored?.date_deactivated) {
+              // Same contract as expiryFallbackUsed on the enabled branch:
+              // name the row rather than let a daily-changing window pass
+              // silently.
+              disabledAnchorFallbackUsed.push(userId);
+            }
 
+            // The enabled window is floored to the activation DAY and starts a
+            // day earlier, which is what the legacy build always sent.
+            //
+            // Anchoring to the stored date is what stopped the drift; flooring
+            // is what keeps the 24-hour head start that absorbs any
+            // disagreement between this server's clock and the devices' about
+            // what timezone a bare `YYYY-MM-DD HH:mm:ss.SSS` denotes. Exporting
+            // the activation INSTANT left zero margin — live BioStar held
+            // `2026-09-10T16:28:31Z` for 27 people after one run. Both values
+            // still derive only from `date_activated`, so an unchanged person
+            // still exports identical bytes every run.
+            const activationDay = storedStart
+              ? dayjs(storedStart).tz('Asia/Manila').startOf('day')
+              : null;
             const startDatetime = isDisabled
               ? disabledAnchor
                   .subtract(2, 'day')
                   .format(BIOSTAR_DATETIME_FORMAT)
-              : (this.formatBiostarDatetime(storedStart) ??
+              : (activationDay
+                  ?.subtract(1, 'day')
+                  .format(BIOSTAR_DATETIME_FORMAT) ??
                 currentDate.subtract(1, 'day').format(BIOSTAR_DATETIME_FORMAT));
             const expiryDatetime = isDisabled
               ? disabledAnchor
                   .subtract(1, 'day')
                   .format(BIOSTAR_DATETIME_FORMAT)
-              : (this.formatBiostarDatetime(storedExpiry) ??
-                currentDate.add(10, 'year').format(BIOSTAR_DATETIME_FORMAT));
+              : (activationDay
+                  ?.add(ACTIVATION_VALIDITY_YEARS, 'year')
+                  .format(BIOSTAR_DATETIME_FORMAT) ??
+                currentDate
+                  .add(ACTIVATION_VALIDITY_YEARS, 'year')
+                  .format(BIOSTAR_DATETIME_FORMAT));
 
             return {
               userId,
@@ -1362,8 +1448,28 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         // resolved from BioStar, or a first activation window. Hashing what we
         // are about to send is the only comparison that cannot miss those.
         // ------------------------------------------------------------------
+        // One CSV line per user_id, keeping the LAST occurrence.
+        //
+        // A duplicated id in the source renders two different lines under the
+        // same key, but only one hash can be stored against the one student
+        // row — so whichever variant loses that race mismatches on every later
+        // run and that person is re-imported, and re-transferred to every
+        // device, forever. Keeping the last one matches what the PostgreSQL
+        // upsert keeps, so the exported row and the roster row never disagree
+        // about which variant is canonical.
+        const dedupedByUserId = new Map<string, Record<string, string>>();
+        for (const row of candidateRecords) dedupedByUserId.set(row.user_id, row);
+        const duplicateRowsDropped = candidateRecords.length - dedupedByUserId.size;
+        if (duplicateRowsDropped > 0) {
+          csvDuplicateRowsDropped += duplicateRowsDropped;
+          this.logger.warn(
+            `[Batch ${batchNumber}] ${duplicateRowsDropped} duplicate source id(s) collapsed to one CSV row each`,
+          );
+        }
+        const uniqueCandidates = [...dedupedByUserId.values()];
+
         const rowHashes = new Map<string, string>();
-        const formattedRecords = candidateRecords.filter((row) => {
+        const formattedRecords = uniqueCandidates.filter((row) => {
           const hash = this.hashCsvRow(row, dasmaHeaders);
           rowHashes.set(row.user_id, hash);
           const unchanged =
@@ -1758,19 +1864,46 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // apart permanently (core/safety.md invariant 2).
       const pendingRows = await this.studentRepository.find({
         where: { remarks_clear_pending: true },
-        select: ['ID_Number'],
+        // `Remarks` is selected on purpose — see the re-validation below.
+        select: ['ID_Number', 'Remarks'],
       });
+
+      // A pending flag records an intention from an earlier run, not a licence
+      // to delete whatever is there now. If the remark has come back — or was
+      // never really removed — acting on the flag destroys a live value.
+      //
+      // That is not hypothetical: on 2026-09-10 one run exported
+      // `88888888,…,Sir Boss,…`, imported it successfully, and then cleared
+      // that same remark seconds later off a flag left over from a previous
+      // run. Because the row hash was stored in the same run, the next sync
+      // suppressed the row as unchanged and the loss became permanent.
+      const stillEmpty = (r: Student) => !(r.Remarks?.trim() || null);
+      const staleFlags = pendingRows
+        .filter((r) => !stillEmpty(r))
+        .map((r) => r.ID_Number);
       const carriedOver = pendingRows
+        .filter(stillEmpty)
         .map((r) => r.ID_Number)
         .filter((id) => !remarksClearedIds.includes(id));
+
+      if (staleFlags.length > 0) {
+        this.logger.log(
+          `[${jobName}] Dropping ${staleFlags.length} stale remark-clear flag(s) — ` +
+            `PostgreSQL holds a remark again for: ${staleFlags.slice(0, 20).join(', ')}`,
+        );
+      }
+
       const remarkClearResult = await this.clearRemovedRemarksInBiostar([
         ...remarksClearedIds,
         ...carriedOver,
       ]);
 
-      if (remarkClearResult.succeeded.length > 0) {
+      // Clear the flag for the writes that landed AND for the ones that should
+      // never have been queued, so a stale flag cannot come back next run.
+      const flagsToClear = [...remarkClearResult.succeeded, ...staleFlags];
+      if (flagsToClear.length > 0) {
         await this.studentRepository.update(
-          { ID_Number: In(remarkClearResult.succeeded) },
+          { ID_Number: In(flagsToClear) },
           { remarks_clear_pending: false },
         );
       }
@@ -1830,6 +1963,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         // MUST be empty on every run, including the first after deploy.
         // Anything here means the stored expiry window is not persisting.
         expiryFallbackUsed: this.commonService.capIds(expiryFallbackUsed),
+        // Also MUST be empty. See the declaration above.
+        disabledAnchorFallbackUsed: this.commonService.capIds(
+          disabledAnchorFallbackUsed,
+        ),
 
         // How much of this run changed at the database level.
         rowsChanged,
@@ -1853,6 +1990,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           // to ~0 once the roster is populated; if it stays high the write-back
           // is not sticking.
           csnPersistedFromBiostar,
+          duplicateRowsDropped: csvDuplicateRowsDropped,
         },
 
         csvImport: csvImportOutcomes,
@@ -1860,6 +1998,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         remarks: {
           clearedInPostgres: this.commonService.capIds(remarksClearedIds),
           pendingCarriedOver: this.commonService.capIds(carriedOver),
+          // Flags dropped without a PUT because the remark is present again.
+          staleFlagsDropped: this.commonService.capIds(staleFlags),
           attempted: remarkClearResult.attempted,
           succeeded: remarkClearResult.succeeded.length,
           failedIds: this.commonService.capIds(remarkClearResult.failed),
@@ -2046,6 +2186,19 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       return a > b;
     }
     return candidate > current;
+  }
+
+  /**
+   * Makes one free-text value safe for BioStar's CSV importer.
+   *
+   * Collapses every line break — and the runs of whitespace they leave behind —
+   * into single spaces, so a record always occupies exactly one physical line.
+   * Commas and quotes are left alone: the writer quotes those correctly and
+   * BioStar reads them back correctly. Only newlines are the problem.
+   */
+  private flattenCsvCell(value: string | null | undefined): string {
+    if (value == null) return '';
+    return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
   }
 
   private formatBiostarDatetime(value: Date | null): string | null {

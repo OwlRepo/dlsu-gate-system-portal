@@ -193,6 +193,12 @@ describe('DatabaseSyncDasmaPathService', () => {
   let biostarPages: { total: number; rows: Record<string, unknown>[] }[];
   /** user_id -> detail payload for the fake /api/users/:id endpoint. */
   let biostarDetails: Record<string, Record<string, unknown> | null>;
+  /**
+   * Ids BioStar cannot answer for right now — a timeout or a 5xx, not a "no
+   * such user". Absence from `biostarDetails` means the opposite: BioStar
+   * looked and genuinely does not have them, which is a 400.
+   */
+  let biostarUnreachable: Set<string>;
 
   /** Rebuilt per test so one test's override cannot leak into the next. */
   let CONFIG: Record<string, string>;
@@ -204,7 +210,11 @@ describe('DatabaseSyncDasmaPathService', () => {
     SOURCE_DB_PORT: '1433',
     SOURCE_DB_TABLE: 'dbo.FakeRoster',
     // Off by default so the CSN path does not fan out to BioStar per row.
-    DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'false',
+    // Matches production, where the flag is absent and the code defaults it to
+    // 'true' (`?? 'true'`). It used to be 'false' here, so most of this suite
+    // exercised a configuration the deployment never runs — and one that is now
+    // known to be unsafe, since a blank `csn` destroys a card.
+    DASMA_CSV_FETCH_CARD_FROM_BIOSTAR: 'true',
     BIOSTAR_DETAIL_CONCURRENCY: '4',
   });
 
@@ -256,6 +266,7 @@ describe('DatabaseSyncDasmaPathService', () => {
     } as BiostarSyncState;
     biostarPages = [{ total: 0, rows: [] }];
     biostarDetails = {};
+    biostarUnreachable = new Set<string>();
     studentRepo = new FakeStudentRepository();
 
     // --- fake SQL Server -------------------------------------------------
@@ -366,6 +377,15 @@ describe('DatabaseSyncDasmaPathService', () => {
             fetchBiostarUserDetailWithRetry: jest.fn(
               async (userId: string) => biostarDetails[userId] ?? null,
             ),
+            fetchBiostarUserDetail: jest.fn(async (userId: string) => {
+              if (biostarUnreachable.has(userId)) {
+                return { detail: null, status: 503, definitive: false };
+              }
+              const detail = biostarDetails[userId] ?? null;
+              return detail
+                ? { detail, status: 200, definitive: true }
+                : { detail: null, status: 400, definitive: true };
+            }),
             clearUserCustomField: jest.fn().mockResolvedValue(true),
           },
         },
@@ -423,9 +443,60 @@ describe('DatabaseSyncDasmaPathService', () => {
       const dayOne = csvRowFor('12100001', 0);
       const dayTwo = csvRowFor('12100001', 1);
 
-      expect(dayOne.expiry_datetime).toBe('2036-08-26 08:00:00.000');
+      // Day-floored, not the 08:00 activation instant — see
+      // 'back-dates the exported start to the day before activation'.
+      expect(dayOne.expiry_datetime).toBe('2036-08-26 00:00:00.000');
       expect(dayTwo.expiry_datetime).toBe(dayOne.expiry_datetime);
       expect(dayTwo.start_datetime).toBe(dayOne.start_datetime);
+    });
+
+    /**
+     * The exported window must keep the 24-hour head start the legacy build had.
+     *
+     * Anchoring the window to the stored activation date fixed the drift, but
+     * it also started exporting the activation INSTANT — live BioStar held
+     * `start_datetime: 2026-09-10T16:28:31Z` for 27 people after one run. The
+     * old build always sent `today - 1 day 00:00`, and that day of slack is
+     * what absorbs any disagreement between our clock and the devices' about
+     * what timezone a naked `YYYY-MM-DD HH:mm:ss.SSS` is in. With zero margin,
+     * a student activated at 16:28 is at the mercy of that interpretation.
+     *
+     * The dates still come from the stored column, so they are still stable
+     * run to run — this only floors them to the day and steps the start back.
+     */
+    it('back-dates the exported start to the day before activation', async () => {
+      setClock('2026-08-26T16:28:31+08:00');
+
+      await service.executeDatabaseSync('manual-1');
+
+      const row = csvRowFor('12100001');
+      expect(row.start_datetime).toBe('2026-08-25 00:00:00.000');
+      expect(row.expiry_datetime).toBe('2036-08-26 00:00:00.000');
+    });
+
+    it('keeps that window byte-identical when the run happens a day later', async () => {
+      setClock('2026-08-26T16:28:31+08:00');
+      await service.executeDatabaseSync('day-1');
+
+      sourceRows = [sourceRow({ LastName: 'Dela Cruz-Reyes' })];
+      setClock('2026-08-27T09:14:02+08:00');
+      await service.executeDatabaseSync('day-2');
+
+      const one = csvRowFor('12100001', 0);
+      const two = csvRowFor('12100001', 1);
+      expect(two.start_datetime).toBe(one.start_datetime);
+      expect(two.expiry_datetime).toBe(one.expiry_datetime);
+      expect(two.start_datetime).toBe('2026-08-25 00:00:00.000');
+    });
+
+    it('back-dates a whole day even for a late-evening activation', async () => {
+      setClock('2026-08-26T23:59:59+08:00');
+
+      await service.executeDatabaseSync('manual-1');
+
+      expect(csvRowFor('12100001').start_datetime).toBe(
+        '2026-08-25 00:00:00.000',
+      );
     });
 
     it('leaves the stored window untouched on a re-sync that changes nothing', async () => {
@@ -487,8 +558,10 @@ describe('DatabaseSyncDasmaPathService', () => {
         new Date('2037-01-15T08:00:00+08:00'),
       );
       expect(stored.date_deactivated).toBeNull();
+      // The STORED expiry keeps the activation instant (asserted just above);
+      // only the exported cell is floored to the day.
       expect(csvRowFor('12100001', 2).expiry_datetime).toBe(
-        '2037-01-15 08:00:00.000',
+        '2037-01-15 00:00:00.000',
       );
     });
 
@@ -742,6 +815,65 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     // Bucket 5 (performance) — PUT count tracks removed remarks, never roster.
+    /**
+     * THE LIVE INCIDENT, as a regression test.
+     *
+     * On 2026-09-10 a single run exported `88888888,…,Sir Boss,…` in the CSV,
+     * imported it successfully, and then cleared that very remark in BioStar a
+     * few seconds later. Diagnostics showed why: `clearedInPostgres: []` but
+     * `pendingCarriedOver: ["88888888"]`. The flag was left over from an
+     * earlier run and was acted on without ever re-reading the remark, which
+     * by then was back.
+     *
+     * A pending flag is a record of an intention, not a licence. If the source
+     * still holds a remark, the intention is stale and must be dropped — not
+     * executed against a live value.
+     */
+    it('drops a stale pending flag instead of deleting a remark that came back', async () => {
+      // The source says this person HAS a remark...
+      sourceRows = [sourceRow({ Remarks: 'Sir Boss' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      // ...and an earlier run left a clear pending on them anyway.
+      await studentRepo.update(
+        { ID_Number: '12100001' },
+        { remarks_clear_pending: true },
+      );
+      (biostarApi.clearUserCustomField as jest.Mock).mockClear();
+
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.clearUserCustomField).not.toHaveBeenCalled();
+      expect(studentRepo.byId('12100001').remarks_clear_pending).toBe(false);
+      // And the remark itself is untouched on both sides.
+      expect(studentRepo.byId('12100001').Remarks).toBe('Sir Boss');
+    });
+
+    it('still clears when the pending flag matches an empty remark', async () => {
+      sourceRows = [sourceRow({ Remarks: 'Watchlist' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      // Remark removed upstream, but the PUT fails, so the flag survives.
+      (biostarApi.clearUserCustomField as jest.Mock).mockResolvedValueOnce(
+        false,
+      );
+      sourceRows = [sourceRow({ Remarks: null })];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+      expect(studentRepo.byId('12100001').remarks_clear_pending).toBe(true);
+
+      // Next run retries it — the source still says the remark is gone.
+      (biostarApi.clearUserCustomField as jest.Mock).mockClear();
+      setClock('2026-08-28T08:00:00+08:00');
+      await service.executeDatabaseSync('run-3');
+
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledTimes(1);
+      expect(studentRepo.byId('12100001').remarks_clear_pending).toBe(false);
+    });
+
     it('never PUTs for users whose remark did not change', async () => {
       sourceRows = Array.from({ length: 25 }, (_, i) =>
         sourceRow({ ID: `1210${String(i).padStart(4, '0')}`, Remarks: 'keep' }),
@@ -1173,6 +1305,54 @@ describe('DatabaseSyncDasmaPathService', () => {
     // re-enroll storm actually stopped. A renamed or missing key here costs
     // the entire signal, silently — so the shape is pinned, not just the
     // behaviour it describes.
+    /**
+     * The disabled branch had no equivalent of `expiryFallbackUsed`.
+     *
+     * A deactivated row with no `date_deactivated` anchors its window to TODAY,
+     * so its rendered bytes change every calendar day and it re-exports
+     * forever — the exact churn this whole change set exists to stop — with
+     * nothing anywhere saying why. `resolveActivationWindow` stamps that column
+     * precisely so this cannot happen, which is why it needs to be visible if
+     * it ever does.
+     */
+    it('names a disabled row that had to fall back to today', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Campus_Entry: 'N',
+        isArchived: false,
+        date_activated: null,
+        date_deactivated: null,
+        expiry_datetime: null,
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      sourceRows = [sourceRow({ Status: false })];
+      // Stop resolveActivationWindow from stamping the column, so the row
+      // reaches the CSV builder in the state this diagnostic is here to catch.
+      jest
+        .spyOn(commonService, 'resolveActivationWindow')
+        .mockReturnValue(null);
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(
+        diagnosticsWritten().at(-1).disabledAnchorFallbackUsed.ids,
+      ).toEqual(['12100001']);
+    });
+
+    it('leaves that list empty when the deactivation date is stamped', async () => {
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      sourceRows = [sourceRow({ Status: false })];
+      setClock('2026-09-01T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(
+        diagnosticsWritten().at(-1).disabledAnchorFallbackUsed.ids,
+      ).toEqual([]);
+    });
+
     it('reports what was exported versus suppressed', async () => {
       sourceRows = [
         sourceRow({ ID: '12100001' }),
@@ -1541,6 +1721,39 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(studentRepo.byId('12100001').biostar_row_hash).toBeUndefined();
     }, 30000);
 
+    /**
+     * A duplicate ID in the source must not re-export forever.
+     *
+     * Two source rows sharing one ID render two different CSV lines under the
+     * same `user_id`, but only ONE hash can be stored against the one student
+     * row. Whichever variant loses that race mismatches on every subsequent
+     * run, so that person is re-imported — and re-transferred to every device —
+     * on every single sync, permanently.
+     *
+     * Seen live on 2026-09-10: with everything else quiet, run C still emitted
+     * exactly one row, and it was the duplicated id.
+     *
+     * The last occurrence wins, which is the same one the PostgreSQL upsert
+     * keeps, so the CSV and the roster agree on which variant is canonical.
+     */
+    it('exports a duplicated source id once, and stops re-exporting it', async () => {
+      sourceRows = [
+        sourceRow({ LastName: 'Juliet', FirstName: 'Eleven' }),
+        sourceRow({ LastName: 'Juliet', FirstName: 'Eleven-Dup' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      expect(latestCsv()).toHaveLength(1);
+      expect(latestCsv()[0].name).toBe('Juliet ElevenDup');
+
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      // Nothing changed upstream, so the second run must send nothing at all.
+      expect(importCalls()).toHaveLength(1);
+    });
+
     it('exports only the row that changed', async () => {
       sourceRows = [
         sourceRow({ ID: '12100001' }),
@@ -1635,16 +1848,51 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(csvRowFor('12100001').csn).toBe('987654321');
     });
 
-    // Under import_option 2 an empty cell is a candidate to blank the card in
-    // BioStar. Skipping the row leaves BioStar holding whatever it already has,
-    // which is safe whichever way that behaviour actually falls.
-    it('omits the row entirely rather than exporting an empty csn', async () => {
-      biostarDetails['12100001'] = null;
+    // BioStar could not be reached, so we do not know whether this person holds
+    // a card. Under import_option 2 an empty cell is a candidate to blank one,
+    // so the row is held back and BioStar keeps whatever it already has.
+    it('omits the row when BioStar could not be reached', async () => {
+      biostarUnreachable.add('12100001');
       setClock('2026-08-26T08:00:00+08:00');
 
       await service.executeDatabaseSync('run-1');
 
       expect(latestCsv()).toHaveLength(0);
+    });
+
+    /**
+     * THE ENROLMENT DEADLOCK.
+     *
+     * A student who is in the source but not yet in BioStar is exactly who the
+     * CSV exists to create. BioStar answers 400 for them — it has never heard
+     * of them — and treating that like "could not be reached" held the row back,
+     * so they could not be enrolled because they were not already enrolled.
+     *
+     * Observed live on 2026-09-10: of 14 freshly seeded students, 13 were
+     * dropped this way and only the one pre-created in BioStar got through.
+     * An empty `csn` cannot blank a card on a user who does not exist.
+     */
+    it('exports a brand-new student BioStar has never seen', async () => {
+      // Not in biostarDetails and not unreachable => BioStar answers 400.
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(latestCsv()).toHaveLength(1);
+      expect(csvRowFor('12100001').csn).toBe('');
+    });
+
+    it('names only the unreachable row as skipped, never a new student', async () => {
+      biostarUnreachable.add('12100001');
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      const diag = (fsMock.writeFileSync as jest.Mock).mock.calls
+        .filter(([path]) => String(path).includes('diagnostics'))
+        .map(([, body]) => JSON.parse(String(body)))
+        .at(-1);
+      expect(diag.csvExport.csnUnresolvedRowsSkipped.ids).toEqual(['12100001']);
     });
 
     // BioStar answered, and the answer was "this person has no card". An empty
@@ -1658,6 +1906,48 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       expect(latestCsv()).toHaveLength(1);
       expect(csvRowFor('12100001').csn).toBe('');
+    });
+
+    /**
+     * OBSERVED, no longer assumed: on 2026-09-10 a single-row import with a
+     * blank `csn` under `import_option: 2` took a live BioStar user from
+     * `card_count: 1, cards: ["7710000016"]` to `card_count: 0, cards: []`.
+     *
+     * So a blank cell really does destroy a card. With card resolution switched
+     * off we know nothing about who holds one, which makes every blank cell a
+     * coin flip on someone's physical access. The row is held back instead —
+     * BioStar then keeps whatever it already had.
+     */
+    it('holds the row back rather than sending a blank csn with lookups disabled', async () => {
+      CONFIG.DASMA_CSV_FETCH_CARD_FROM_BIOSTAR = 'false';
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(latestCsv()).toHaveLength(0);
+      // And it is named, so a held-back row is never silent.
+      const diag = (fsMock.writeFileSync as jest.Mock).mock.calls
+        .filter(([path]) => String(path).includes('diagnostics'))
+        .map(([, body]) => JSON.parse(String(body)))
+        .at(-1);
+      expect(diag.csvExport.csnUnresolvedRowsSkipped.ids).toEqual(['12100001']);
+    });
+
+    it('still exports a stored card when lookups are disabled', async () => {
+      CONFIG.DASMA_CSV_FETCH_CARD_FROM_BIOSTAR = 'false';
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '5551234',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(csvRowFor('12100001').csn).toBe('5551234');
     });
 
     it('exports the stored card without calling BioStar at all', async () => {
@@ -1783,8 +2073,40 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(biostarApi.fetchBiostarUserDetailWithRetry).not.toHaveBeenCalled();
     });
 
+    /**
+     * The sweep is meant to drain and stop. It selects only rows with no
+     * `remarks_checked_at`, so once everyone has been looked at it selects
+     * nothing — unless a row can never be stamped, in which case it is
+     * re-checked on every run forever.
+     *
+     * BioStar answers 400 for a user it does not have. That IS an answer:
+     * there is no remark over there to clear, so the row is done. Observed
+     * live 2026-09-10, where `remarks_checked_at IS NULL` climbed from 2 rows
+     * to 18 across a single campaign because nothing ever stamped them.
+     */
+    it('stamps a row BioStar has never heard of, so the sweep drains', async () => {
+      studentRepo.rows.push({
+        ID_Number: '99999999',
+        Name: 'Unknown To Biostar',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Remarks: null,
+        remarks_checked_at: null,
+      } as Student);
+      // Not in biostarDetails and not unreachable => a definitive 400.
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(studentRepo.byId('99999999').remarks_checked_at).toEqual(
+        new Date('2026-08-26T08:00:00+08:00'),
+      );
+    });
+
     it('leaves a row unstamped when BioStar could not be reached', async () => {
-      biostarDetails['12100001'] = null;
+      // Unreachable, not "no such user" — the answer is unknown, so the row
+      // must come back around rather than be written off as checked.
+      biostarUnreachable.add('12100001');
       setClock('2026-08-26T08:00:00+08:00');
 
       await service.executeDatabaseSync('run-1');

@@ -228,4 +228,156 @@ describe('BiostarApiService.clearUserCustomField', () => {
     expect(axios.get).toHaveBeenCalledTimes(1);
     expect(axios.put).toHaveBeenCalledTimes(1);
   });
+
+  // ------------------------------------------------------------------
+  // Edge — the shape a REAL cleared field comes back in
+  // ------------------------------------------------------------------
+
+  /**
+   * Read off the live server on 2026-09-10 after a successful clear: BioStar
+   * drops the `item` key entirely rather than storing an empty string, and
+   * adds `size: "0"`. `item === ''` therefore never matches a field this code
+   * itself cleared, so every later run PUT again for no reason.
+   */
+  it('treats a Remarks entry with no item key at all as already blank', async () => {
+    (axios.get as jest.Mock).mockResolvedValue({
+      data: {
+        User: {
+          user_id: 'ZZTEST001',
+          user_custom_fields: [
+            {
+              user_id: { user_id: 'ZZTEST001', name: 'Test User' },
+              custom_field: { id: '1', name: 'Remarks', type: '0', order: '1' },
+              size: '0',
+            },
+          ],
+        },
+      },
+    });
+
+    await expect(clear()).resolves.toBe(true);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  it('treats a null item as already blank', async () => {
+    (axios.get as jest.Mock).mockResolvedValue(userWithFields(null));
+
+    await expect(clear()).resolves.toBe(true);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The detail fetch has to say WHY it came back empty.
+ *
+ * `fetchBiostarUserDetailWithRetry` answers `null` both for "BioStar has no
+ * such user" and for "BioStar could not be reached", and two callers need to
+ * tell those apart:
+ *
+ *   - the remark sweep, which must stamp a user BioStar does not have (else it
+ *     re-checks them forever), but must NOT stamp one it merely failed to reach;
+ *   - the CSN resolver, which must let a brand-new student through with an
+ *     empty `csn` (there is no card to blank), but must hold back a row when
+ *     BioStar is simply unreachable.
+ */
+describe('BiostarApiService.fetchBiostarUserDetail', () => {
+  let service: BiostarApiService;
+
+  const CONFIG: Record<string, string> = {
+    BIOSTAR_API_BASE_URL: 'https://biostar.fake',
+    BIOSTAR_API_LOGIN_ID: 'fake',
+    BIOSTAR_API_PASSWORD: 'fake',
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        BiostarApiService,
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn((key: string) => CONFIG[key]) },
+        },
+      ],
+    }).compile();
+    service = module.get(BiostarApiService);
+  });
+
+  const axiosError = (status: number | null) => {
+    const err = Object.assign(new Error('boom'), {
+      isAxiosError: true,
+      response: status == null ? undefined : { status },
+      code: status == null ? 'ETIMEDOUT' : undefined,
+    });
+    (axios.isAxiosError as unknown as jest.Mock) = jest.fn(() => true);
+    return err;
+  };
+
+  const fetch = () =>
+    service.fetchBiostarUserDetail('ZZTEST001', 't0ken', 's3ss10n', 1);
+
+  it('returns the user and status 200 when BioStar has them', async () => {
+    (axios.isAxiosError as unknown as jest.Mock) = jest.fn(() => false);
+    (axios.get as jest.Mock).mockResolvedValue({
+      data: { User: { user_id: 'ZZTEST001', name: 'Test User' } },
+    });
+
+    await expect(fetch()).resolves.toEqual({
+      detail: { user_id: 'ZZTEST001', name: 'Test User' },
+      status: 200,
+      definitive: true,
+    });
+  });
+
+  it.each([400, 404])(
+    'reports a %s as definitive — BioStar genuinely has no such user',
+    async (status) => {
+      (axios.get as jest.Mock).mockRejectedValue(axiosError(status));
+
+      await expect(fetch()).resolves.toEqual({
+        detail: null,
+        status,
+        definitive: true,
+      });
+    },
+  );
+
+  it.each([500, 502, 429])(
+    'reports a %s as NOT definitive — the answer is unknown, not "absent"',
+    async (status) => {
+      (axios.get as jest.Mock).mockRejectedValue(axiosError(status));
+
+      await expect(fetch()).resolves.toEqual({
+        detail: null,
+        status,
+        definitive: false,
+      });
+    },
+  );
+
+  it('reports a timeout as not definitive', async () => {
+    (axios.get as jest.Mock).mockRejectedValue(axiosError(null));
+
+    await expect(fetch()).resolves.toEqual({
+      detail: null,
+      status: null,
+      definitive: false,
+    });
+  });
+
+  it('keeps the old null-returning wrapper working for existing callers', async () => {
+    (axios.isAxiosError as unknown as jest.Mock) = jest.fn(() => false);
+    (axios.get as jest.Mock).mockResolvedValue({
+      data: { User: { user_id: 'ZZTEST001' } },
+    });
+
+    await expect(
+      service.fetchBiostarUserDetailWithRetry(
+        'ZZTEST001',
+        't0ken',
+        's3ss10n',
+        1,
+      ),
+    ).resolves.toEqual({ user_id: 'ZZTEST001' });
+  });
 });
