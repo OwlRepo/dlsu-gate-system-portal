@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { In, IsNull } from 'typeorm';
+import { In, IsNull, Raw } from 'typeorm';
 import * as sql from 'mssql';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -153,23 +153,33 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     const limit = 500;
 
     /**
-     * Incremental listing is only as good as BioStar's own bookkeeping. A
-     * photo uploaded through the BioStar UI is not guaranteed to move that
-     * user's `last_modified`, and once the cursor is past him nothing looks
-     * at him again — the photo never arrives and nothing reports a problem.
-     * So a full pass comes round on a timer regardless of the cursor.
+     * The list is NEVER narrowed by `last_modified` any more.
+     *
+     * Asking BioStar "who have you changed?" makes our completeness depend on
+     * its bookkeeping, and a photo uploaded through the BioStar UI does not
+     * reliably move that user's `last_modified`. Once the cursor was past
+     * him, nothing looked at him again and the photo never arrived — with
+     * nothing anywhere reporting a problem.
+     *
+     * Listing everyone costs one request per 500 users and tells us far more:
+     * each row already carries `photo_exists` and `card_count`, so the pull
+     * can compare what BioStar shows against what PostgreSQL holds and decide
+     * for itself who needs looking at. The cursor survives as one signal
+     * among those, not as the gate.
      */
-    const fullSyncDue =
+    const deepPass =
       fullSyncIntervalHours === 0 ||
       !state.lastFullSyncAt ||
       Date.now() - state.lastFullSyncAt.getTime() >=
         fullSyncIntervalHours * 3600 * 1000;
-    const useIncremental =
-      !!state.lastSuccessAt && !!state.lastModifiedCursor && !fullSyncDue;
-    let offset = useIncremental ? 0 : (state.lastProcessedOffset ?? 0);
+    /** Users re-read because no list field could have exposed their change. */
+    let totalDeepPassReads = 0;
+    /** Users re-read because BioStar's list row disagreed with PostgreSQL. */
+    let totalDriftReads = 0;
+    let offset = state.lastProcessedOffset ?? 0;
 
     this.logger.log(
-      `[Dasma Biostar] Starting sync: incremental=${useIncremental}, fullSyncDue=${fullSyncDue}, group=${listGroupId || 'all'}, candidateFilter=${candidateFilterOff ? 'off' : 'photo-or-card'}, lastModifiedCursor=${state.lastModifiedCursor ?? 'none'}, lastSuccessAt=${state.lastSuccessAt?.toISOString() ?? 'never'}, lastFullSyncAt=${state.lastFullSyncAt?.toISOString() ?? 'never'}`,
+      `[Dasma Biostar] Starting sync: deepPass=${deepPass}, group=${listGroupId || 'all'}, candidateFilter=${candidateFilterOff ? 'off' : 'photo-or-card'}, lastModifiedCursor=${state.lastModifiedCursor ?? 'none'}, lastSuccessAt=${state.lastSuccessAt?.toISOString() ?? 'never'}, lastFullSyncAt=${state.lastFullSyncAt?.toISOString() ?? 'never'}`,
     );
 
     try {
@@ -182,10 +192,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         if (listGroupId) {
           params.group_id = listGroupId;
         }
-        if (useIncremental && state.lastModifiedCursor) {
-          params.last_modified = state.lastModifiedCursor;
-        }
-
         const response = await axios.get(`${apiBaseUrl}/api/users`, {
           params,
           headers: {
@@ -221,15 +227,59 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           if (groupId != null) groupIdsSeen.add(String(groupId));
         }
 
+        // What PostgreSQL currently holds for the people on THIS page. Two
+        // narrow queries, neither of which transfers a single photo byte.
+        const stored = await this.loadStoredStateFor(
+          rows
+            .map((u: Record<string, unknown>) => String(u.user_id ?? ''))
+            .filter((id) => id !== ''),
+        );
+        const cursorAtRunStart = state.lastModifiedCursor || '0';
+        let pageDriftReads = 0;
+        let pageDeepReads = 0;
+
         let candidates = rows.filter((u: Record<string, unknown>) => {
           if (!u.user_id) return false;
-          if (candidateFilterOff) return true;
           const photoExists =
             u.photo_exists === true || u.photo_exists === 'true';
           const cardCount = parseInt(String(u.card_count ?? 0), 10) || 0;
-          const hasCard = cardCount > 0;
-          return photoExists || hasCard;
+
+          // Is this person worth the cost of a detail request at all? The
+          // answer is what keeps a 20,000-user roster from becoming 20,000
+          // requests, and it is the ONLY thing the list filter decides.
+          const worthFetching =
+            candidateFilterOff || photoExists || cardCount > 0;
+          if (!worthFetching) return false;
+          if (candidateFilterOff || deepPass) {
+            pageDeepReads++;
+            return true;
+          }
+
+          // Signal one: BioStar says this user moved since our last clean run.
+          const changed = this.isLaterCursor(
+            String(u.last_modified ?? '0'),
+            cursorAtRunStart,
+          );
+
+          // Signal two, and the one that does not depend on BioStar's
+          // bookkeeping at all: its own list row disagrees with what we hold.
+          //
+          // A card BioStar no longer has is deliberately NOT drift. We keep
+          // that card on purpose — clearing one is destructive to physical
+          // access and is not this code's call — so reading it as drift would
+          // re-fetch that user on every run for ever with nothing to show.
+          const held = stored.get(String(u.user_id));
+          const drifted =
+            !held ||
+            (photoExists && !held.hasPhoto) ||
+            (!photoExists && held.hasPhoto) ||
+            (cardCount > 0 && !held.hasCard);
+
+          if (drifted && !changed) pageDriftReads++;
+          return changed || drifted;
         });
+        totalDriftReads += pageDriftReads;
+        totalDeepPassReads += pageDeepReads;
 
         if (
           maxCandidates > 0 &&
@@ -518,7 +568,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         state.lastSuccessAt = new Date();
         state.lastError = null;
         state.lastModifiedCursor = maxLastModified;
-        if (!useIncremental) {
+        if (deepPass) {
           state.lastFullSyncAt = new Date();
         }
       } else {
@@ -532,7 +582,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
       const durationMs = Date.now() - runStartMs;
       this.logger.log(
-        `[Dasma Biostar] Sync completed: discovered=${totalDiscovered}, candidates=${totalCandidates}, detailFetched=${totalDetailFetched}, updated=${totalUpdated}, created=${totalCreated}, skipped=${totalSkipped}, failed=${totalFailed}, cardUpdated=${totalCardUpdated}, cardCleared=${totalCardCleared}, rateLimitHits=${totalRateLimitHits}, finalConcurrency=${effectiveConcurrency}, durationMs=${durationMs}`,
+        `[Dasma Biostar] Sync completed: discovered=${totalDiscovered}, candidates=${totalCandidates}, driftReads=${totalDriftReads}, deepPassReads=${totalDeepPassReads}, detailFetched=${totalDetailFetched}, updated=${totalUpdated}, created=${totalCreated}, skipped=${totalSkipped}, failed=${totalFailed}, cardUpdated=${totalCardUpdated}, cardCleared=${totalCardCleared}, rateLimitHits=${totalRateLimitHits}, finalConcurrency=${effectiveConcurrency}, durationMs=${durationMs}`,
       );
       const failRatio =
         totalDetailFetched > 0 ? totalFailed / totalDetailFetched : 0;
@@ -556,9 +606,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       await this.commonService.writeSyncDiagnostics(jobKey, {
         direction: 'biostar-to-postgres',
         schemaEnv: 'dasma',
-        incremental: useIncremental,
-        fullPass: !useIncremental,
-        fullSyncDue,
+        listNarrowedByLastModified: false,
+        deepPass,
+        driftReads: totalDriftReads,
+        deepPassReads: totalDeepPassReads,
         listGroupId: listGroupId || 'all',
         candidateFilter: candidateFilterOff ? 'off' : 'photo-or-card',
         listRowKeys: firstListRowKeys,
@@ -599,6 +650,49 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       await this.biostarSyncStateRepository.save(state);
       throw error;
     }
+  }
+
+  /**
+   * What PostgreSQL holds for a page of BioStar users — presence only.
+   *
+   * Deliberately two `find`s that each select a single column rather than one
+   * query returning the rows: `Photo` is base64 image data, and pulling 500 of
+   * them per page to ask "is it there?" would move tens of megabytes a page
+   * for a pair of booleans.
+   */
+  private async loadStoredStateFor(
+    ids: string[],
+  ): Promise<Map<string, { hasPhoto: boolean; hasCard: boolean }>> {
+    const out = new Map<string, { hasPhoto: boolean; hasCard: boolean }>();
+    if (ids.length === 0) return out;
+
+    const present = await this.studentRepository.find({
+      where: { ID_Number: In(ids) },
+      select: ['ID_Number', 'Unique_ID'],
+    });
+    for (const row of present) {
+      out.set(String(row.ID_Number), {
+        hasPhoto: false,
+        // A bigint column comes back as a string, and '' is not a card.
+        hasCard: !!(row.Unique_ID != null && String(row.Unique_ID) !== ''),
+      });
+    }
+
+    // An empty string is not an image. Treating one as a stored photo would
+    // make the row look settled and stop us ever fetching the real one.
+    const withPhoto = await this.studentRepository.find({
+      where: {
+        ID_Number: In(ids),
+        Photo: Raw((alias) => `${alias} IS NOT NULL AND ${alias} <> ''`),
+      },
+      select: ['ID_Number'],
+    });
+    for (const row of withPhoto) {
+      const entry = out.get(String(row.ID_Number));
+      if (entry) entry.hasPhoto = true;
+    }
+
+    return out;
   }
 
   /**
@@ -1958,7 +2052,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // Drain the pre-fix backlog, a bounded slice at a time.
       //
       // The BioStar pull reconciles remarks for free, but only for users it
-      // visits — those with a photo or a card, in group 1. Anyone else whose
+      // visits — those with a photo or a card. Anyone else whose
       // remark was removed before the clearing fix shipped would never be
       // looked at again. This sweep picks up only rows never checked, so it
       // works through that remainder over a handful of runs and then stops on

@@ -748,39 +748,178 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       expect((await byId('12100001')).Photo).toBe('/9j/PICKED-UP');
     }, 90000);
 
-    // BioStar does not promise to bump `last_modified` for every change a
-    // photo upload makes. Incremental alone would never revisit that user, so
-    // a full pass has to come round on its own.
-    it('asks for everything again once the last full pass aged out', async () => {
+    // ==================================================================
+    // Reconciliation — the list row itself says whether we are behind
+    // ==================================================================
+    //
+    // The pull used to ask BioStar a single question: who have you changed?
+    // That answer is only as good as BioStar's own bookkeeping, and a photo
+    // uploaded through its UI does not reliably move that user's
+    // `last_modified`. Waiting for a timer to come round and re-read
+    // everything is a way of coping with not knowing.
+    //
+    // We do not have to not know. Every list row already carries
+    // `photo_exists` and `card_count`, fetched already, costing nothing. So
+    // the pull compares what BioStar shows against what PostgreSQL holds and
+    // goes to look whenever the two disagree, whatever the cursor says.
+
+    const pulls = (id: string) => biostar.countOf(`/api/users/${id}`);
+
+    it('never narrows the list by last_modified', async () => {
       biostar.listPages = [{ total: 1, rows: [listRow()] }];
       biostar.userDetails['12100001'] = { user_id: '12100001', photo: 'A' };
-      await service.syncFromBiostar('e2e-full-1');
 
-      // Run 2, immediately after a clean run: incremental is correct here.
-      biostar.userDetails['12100001'] = { user_id: '12100001', photo: 'B' };
-      await service.syncFromBiostar('e2e-full-2');
-      expect(listQueries().at(-1)).toContain('last_modified=');
+      await service.syncFromBiostar('e2e-nonarrow-1');
+      await service.syncFromBiostar('e2e-nonarrow-2');
 
-      // Age the last full pass past the interval.
+      expect(listQueries()).not.toHaveLength(0);
+      for (const url of listQueries()) {
+        expect(url).not.toContain('last_modified');
+      }
+    }, 90000);
+
+    // The reported symptom, reproduced: the photo appears in BioStar and the
+    // user's `last_modified` does not move. Nothing in the cursor can see it.
+    it('fetches a photo that appeared without last_modified moving', async () => {
+      biostar.listPages = [
+        { total: 1, rows: [listRow({ photo_exists: false })] },
+      ];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-drift-photo-1');
+      expect((await byId('12100001')).Photo).toBeNull();
+
+      // Same last_modified. Only the flag and the payload changed.
+      biostar.listPages = [
+        { total: 1, rows: [listRow({ photo_exists: true })] },
+      ];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/APPEARED',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-drift-photo-2');
+
+      expect((await byId('12100001')).Photo).toBe('/9j/APPEARED');
+      expect(pulls('12100001')).toBe(2);
+    }, 90000);
+
+    it('fetches a card that appeared without last_modified moving', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow({ card_count: '0' })] }];
+      biostar.userDetails['12100001'] = { user_id: '12100001', photo: 'A' };
+      await service.syncFromBiostar('e2e-drift-card-1');
+      expect((await byId('12100001')).Unique_ID).toBeNull();
+
+      biostar.listPages = [{ total: 1, rows: [listRow({ card_count: '1' })] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: 'A',
+        cards: [{ card_id: '5559999' }],
+      };
+      await service.syncFromBiostar('e2e-drift-card-2');
+
+      expect((await byId('12100001')).Unique_ID).toBe('5559999');
+    }, 90000);
+
+    it('fetches a user PostgreSQL does not hold at all, cursor or no cursor', async () => {
+      // Run 1 establishes a cursor well ahead of the newcomer's.
+      biostar.listPages = [
+        {
+          total: 1,
+          rows: [listRow({ user_id: '12100009', last_modified: '500' })],
+        },
+      ];
+      biostar.userDetails['12100009'] = { user_id: '12100009', photo: 'A' };
+      await service.syncFromBiostar('e2e-drift-new-1');
+      expect((await state()).lastModifiedCursor).toBe('500');
+
+      // The newcomer's last_modified sits BEHIND the cursor, so "who changed"
+      // can never surface him. PostgreSQL not holding him is the signal.
+      biostar.listPages = [
+        {
+          total: 2,
+          rows: [
+            listRow({ user_id: '12100009', last_modified: '500' }),
+            listRow({ user_id: '12100007', last_modified: '100' }),
+          ],
+        },
+      ];
+      biostar.userDetails['12100007'] = {
+        user_id: '12100007',
+        photo: '/9j/NEWCOMER',
+        cards: [{ card_id: '5557777' }],
+      };
+      await service.syncFromBiostar('e2e-drift-new-2');
+
+      expect((await byId('12100007')).Photo).toBe('/9j/NEWCOMER');
+    }, 90000);
+
+    // The other half of the contract. Looking whenever we might be behind is
+    // only affordable because we do NOT look when the row already agrees.
+    it('leaves an unchanged, agreeing user completely alone', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/SETTLED',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-quiet-1');
+      expect(pulls('12100001')).toBe(1);
+
+      await service.syncFromBiostar('e2e-quiet-2');
+
+      expect(pulls('12100001')).toBe(1);
+    }, 90000);
+
+    // A card deleted in BioStar is a known gap: PostgreSQL deliberately keeps
+    // it, because clearing a card is destructive to physical access and is
+    // not this change's call to make. Drift detection must therefore NOT read
+    // it as "go and look" — it would re-fetch that user on every run forever.
+    it('does not chase a card deleted in BioStar on every later run', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/SETTLED',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-gap-1');
+      expect(pulls('12100001')).toBe(1);
+
+      biostar.listPages = [{ total: 1, rows: [listRow({ card_count: '0' })] }];
+      await service.syncFromBiostar('e2e-gap-2');
+      await service.syncFromBiostar('e2e-gap-3');
+
+      expect(pulls('12100001')).toBe(1);
+      expect((await byId('12100001')).Unique_ID).toBe('5551234');
+    }, 120000);
+
+    // Defence in depth, not the mechanism: drift detection is what catches a
+    // photo upload. This catches whatever changed in a detail that no list
+    // field exposes at all.
+    it('re-reads every candidate on the periodic deep pass', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/SETTLED',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-deep-1');
+      expect(pulls('12100001')).toBe(1);
+
       const repo = dataSource.getRepository(BiostarSyncState);
       const row = await state();
       row.lastFullSyncAt = new Date(Date.now() - 48 * 3600 * 1000);
       await repo.save(row);
 
-      // The photo changed without `last_modified` moving — exactly the case
-      // incremental cannot see.
-      biostar.userDetails['12100001'] = {
-        user_id: '12100001',
-        photo: '/9j/LATE-UPLOAD',
-      };
-      await service.syncFromBiostar('e2e-full-3');
+      await service.syncFromBiostar('e2e-deep-2');
 
-      expect(listQueries().at(-1)).not.toContain('last_modified=');
-      expect((await byId('12100001')).Photo).toBe('/9j/LATE-UPLOAD');
+      expect(pulls('12100001')).toBe(2);
       expect((await state()).lastFullSyncAt.getTime()).toBeGreaterThan(
         Date.now() - 60_000,
       );
-    }, 120000);
+    }, 90000);
 
     // The list filter is our only defence against fetching every detail on a
     // large roster, but it trusts `photo_exists`. When that flag is wrong,

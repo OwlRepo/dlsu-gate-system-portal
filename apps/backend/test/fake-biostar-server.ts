@@ -261,15 +261,29 @@ export class FakeBiostarServer {
 
     // --- user list -----------------------------------------------------
     if (method === 'GET' && /^\/api\/users(\?|$)/.test(url)) {
-      const offset = Number(
-        new URL(url, this.baseUrl).searchParams.get('offset') ?? '0',
-      );
+      const params = new URL(url, this.baseUrl).searchParams;
+      const offset = Number(params.get('offset') ?? '0');
       const page = this.listPages[Math.floor(offset / 500)] ?? {
         total: 0,
         rows: [],
       };
+
+      // Honour `last_modified` the way the real endpoint does: it is a filter,
+      // and a caller that sends one is asking BioStar to WITHHOLD everyone it
+      // does not consider newer. Ignoring it here made the fake far more
+      // generous than the real thing and hid an entire class of bug — a user
+      // BioStar never returns cannot be fetched, updated, or noticed missing.
+      //
+      // Strictly-newer is the pessimistic reading of the two plausible ones.
+      // The test that matters asserts we no longer send the parameter at all,
+      // so which one BioStar actually implements stops being load-bearing.
+      const since = params.get('last_modified');
+      const rows = since
+        ? page.rows.filter((r) => Number(r.last_modified ?? 0) > Number(since))
+        : page.rows;
+
       this.json(res, 200, {
-        UserCollection: { total: String(page.total), rows: page.rows },
+        UserCollection: { total: String(page.total), rows },
       });
       return;
     }

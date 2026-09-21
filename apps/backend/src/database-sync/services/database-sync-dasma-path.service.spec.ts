@@ -121,6 +121,13 @@ describe('DatabaseSyncDasmaPathService', () => {
           if (kind === 'in') {
             return unwrapIn(operand).includes(actual as string);
           }
+          if (kind === 'raw') {
+            // The sync uses exactly one Raw predicate — the reconciliation
+            // snapshot's "this column holds something", i.e. NOT NULL AND
+            // <> ''. Mirroring it here keeps the double honest; a second,
+            // different Raw would need this widened rather than reused.
+            return actual !== null && actual !== undefined && actual !== '';
+          }
           throw new Error(
             `FakeStudentRepository: unsupported operator ${kind}`,
           );
