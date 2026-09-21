@@ -293,7 +293,21 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               const remarkNeedsClearing =
                 postgresRemark === null && !!biostarRemark;
 
-              const photoChanged = photo !== existingStudent.Photo;
+              // Guarded the same way the card is, two lines down.
+              //
+              // BioStar answers without a photo for anyone who became a
+              // candidate by card alone — 4 of 8 fetched users in a live pull
+              // on 2026-09-10. Unguarded, that wrote null straight over a photo
+              // we already held, so the card survived and the picture vanished,
+              // then vanished again on the next such run. Nothing else on the
+              // Dasma path can restore it: the outbound CSV has no photo
+              // column, so this inbound copy is the only one that exists.
+              //
+              // An absent photo means "BioStar did not tell us", never "this
+              // person has no photo". Only a photo BioStar actually sent can
+              // replace the stored one.
+              const photoChanged =
+                photo !== null && photo !== existingStudent.Photo;
               const existingUnique =
                 existingStudent.Unique_ID != null
                   ? String(existingStudent.Unique_ID).trim()

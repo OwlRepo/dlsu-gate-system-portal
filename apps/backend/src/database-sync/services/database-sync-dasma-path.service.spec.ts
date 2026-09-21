@@ -920,6 +920,67 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(biostarState.lastSuccessAt).toBeInstanceOf(Date);
     });
 
+    /**
+     * A reply with no photo must not erase the photo we already hold.
+     *
+     * The card is already protected this way — `uniqueIdChanged` is guarded by
+     * `uniqueId !== null`, so a missing card never blanks a stored one. The
+     * photo had no such guard, so a detail that came back without one wrote
+     * null straight over it. That produces exactly the reported symptom: the
+     * card survives, the picture disappears, and it comes back "wala ULIT" —
+     * missing again — every time BioStar answers without a photo.
+     *
+     * BioStar genuinely does answer without one: in a live pull on 2026-09-10,
+     * 4 of 8 fetched users had no photo in their detail, because they were
+     * candidates by card alone.
+     */
+    it('keeps the stored photo when BioStar answers without one', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ card_count: '1' })] }];
+      // Card present, photo absent — the card-only candidate case.
+      biostarDetails = {
+        '12100001': {
+          User: {
+            user_id: '12100001',
+            name: 'Dela Cruz, Juan',
+            disabled: 'false',
+            cards: [{ card_id: '5551234' }],
+          },
+        },
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      const stored = studentRepo.byId('12100001');
+      expect(stored.Photo).toBe('/9j/ALREADYSTORED');
+      // ...and the card still lands, so the guard costs nothing.
+      expect(stored.Unique_ID).toBe('5551234');
+    });
+
+    it('still replaces the stored photo when BioStar sends a different one', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/OLDPHOTO',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow()] }];
+      biostarDetails = { '12100001': detail({ photo: '/9j/NEWPHOTO' }) };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').Photo).toBe('/9j/NEWPHOTO');
+    });
+
     it('never fetches detail for a user with neither photo nor card', async () => {
       biostarPages = [
         {

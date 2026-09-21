@@ -471,6 +471,55 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       expect(stored.Unique_ID).toBe('5551234');
     }, 90000);
 
+    /**
+     * A second pull that returns no photo must not erase the first one.
+     *
+     * BioStar answers without a photo for anyone who is a candidate by card
+     * alone — 4 of 8 fetched users in a live pull on 2026-09-10. The photo
+     * write had no null guard, so that reply wrote null straight over the
+     * stored photo while the card survived, which is precisely the reported
+     * symptom: the card syncs, the picture goes missing, and it goes missing
+     * *again* on the next such pull.
+     *
+     * Proven here over real HTTP and real PostgreSQL, across two pulls.
+     */
+    it('keeps the stored photo when a later pull returns no photo', async () => {
+      await service.executeDatabaseSync('e2e-1');
+
+      // Pull 1 — BioStar has both a photo and a card.
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        name: 'Dela Cruz, Juan',
+        photo: '/9j/4AAQSkZJRgABAQAAAQ',
+        disabled: 'false',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-photo-1');
+      expect((await byId('12100001'))?.Photo).toBe('/9j/4AAQSkZJRgABAQAAAQ');
+
+      // Pull 2 — same person, card changed, and the reply carries no photo.
+      biostar.listPages = [
+        {
+          total: 1,
+          rows: [listRow({ last_modified: '200', photo_exists: false })],
+        },
+      ];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        name: 'Dela Cruz, Juan',
+        disabled: 'false',
+        cards: [{ card_id: '5559999' }],
+      };
+      await service.syncFromBiostar('e2e-photo-2');
+
+      const stored = await byId('12100001');
+      // The picture is still there...
+      expect(stored?.Photo).toBe('/9j/4AAQSkZJRgABAQAAAQ');
+      // ...and the card still updated, so the guard blocks nothing real.
+      expect(stored?.Unique_ID).toBe('5559999');
+    }, 90000);
+
     // THE WHOLE POINT OF THE PHOTO FIX, proven end to end over real HTTP and
     // real PostgreSQL: the photo BioStar supplied must survive the next
     // source sync, which knows nothing about photos.
