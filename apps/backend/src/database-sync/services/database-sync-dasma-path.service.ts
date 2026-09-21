@@ -86,13 +86,42 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         10,
       ) || 0;
 
+    /**
+     * Which BioStar group to list. Empty means every group, which is the
+     * default: a user moved to another group is still the same person, and
+     * pinning the list to one group silently stops syncing him with no error
+     * anywhere. Set it only to deliberately narrow the pull.
+     */
+    const listGroupId = String(
+      this.configService.get('BIOSTAR_LIST_GROUP_ID') ?? '',
+    ).trim();
+
+    /**
+     * The list filter keeps us from fetching 20,000 details to find the few
+     * that matter, but it believes `photo_exists`. `off` fetches every listed
+     * user instead — the escape hatch for a deployment where that flag lies.
+     */
+    const candidateFilterOff =
+      String(this.configService.get('BIOSTAR_CANDIDATE_FILTER') ?? '')
+        .trim()
+        .toLowerCase() === 'off';
+
+    /**
+     * How stale a full pass may get before the next run is forced to be one.
+     * `0` means every run walks the whole list.
+     */
+    const parsedFullSyncHours = parseInt(
+      String(this.configService.get('BIOSTAR_FULL_SYNC_INTERVAL_HOURS') ?? ''),
+      10,
+    );
+    const fullSyncIntervalHours =
+      Number.isFinite(parsedFullSyncHours) && parsedFullSyncHours >= 0
+        ? parsedFullSyncHours
+        : 24;
+
     const state = await this.getOrCreateBiostarSyncState();
     state.lastRunAt = new Date();
     await this.biostarSyncStateRepository.save(state);
-
-    this.logger.log(
-      `[Dasma Biostar] Starting sync: incremental=${!!state.lastSuccessAt && !!state.lastModifiedCursor}, lastModifiedCursor=${state.lastModifiedCursor ?? 'none'}, lastSuccessAt=${state.lastSuccessAt?.toISOString() ?? 'never'}`,
-    );
 
     const runStartMs = Date.now();
     let totalDiscovered = 0;
@@ -116,23 +145,43 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     const discoveredUserIds: string[] = [];
     /** Field names on the first list row — settles the list-shape question. */
     let firstListRowKeys: string[] = [];
-    /** Distinct BioStar group ids seen, to check the hardcoded group_id: 1. */
+    /** Distinct BioStar group ids seen — shows what BIOSTAR_LIST_GROUP_ID would cut off. */
     const groupIdsSeen = new Set<string>();
     let reportedTotal = 0;
     let totalDetailWithPhoto = 0;
 
     const limit = 500;
-    const useIncremental = !!state.lastSuccessAt && !!state.lastModifiedCursor;
+
+    /**
+     * Incremental listing is only as good as BioStar's own bookkeeping. A
+     * photo uploaded through the BioStar UI is not guaranteed to move that
+     * user's `last_modified`, and once the cursor is past him nothing looks
+     * at him again — the photo never arrives and nothing reports a problem.
+     * So a full pass comes round on a timer regardless of the cursor.
+     */
+    const fullSyncDue =
+      fullSyncIntervalHours === 0 ||
+      !state.lastFullSyncAt ||
+      Date.now() - state.lastFullSyncAt.getTime() >=
+        fullSyncIntervalHours * 3600 * 1000;
+    const useIncremental =
+      !!state.lastSuccessAt && !!state.lastModifiedCursor && !fullSyncDue;
     let offset = useIncremental ? 0 : (state.lastProcessedOffset ?? 0);
+
+    this.logger.log(
+      `[Dasma Biostar] Starting sync: incremental=${useIncremental}, fullSyncDue=${fullSyncDue}, group=${listGroupId || 'all'}, candidateFilter=${candidateFilterOff ? 'off' : 'photo-or-card'}, lastModifiedCursor=${state.lastModifiedCursor ?? 'none'}, lastSuccessAt=${state.lastSuccessAt?.toISOString() ?? 'never'}, lastFullSyncAt=${state.lastFullSyncAt?.toISOString() ?? 'never'}`,
+    );
 
     try {
       do {
         const params: Record<string, string | number> = {
           limit,
           offset,
-          group_id: 1,
           order_by: 'name:true',
         };
+        if (listGroupId) {
+          params.group_id = listGroupId;
+        }
         if (useIncremental && state.lastModifiedCursor) {
           params.last_modified = state.lastModifiedCursor;
         }
@@ -174,6 +223,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
         let candidates = rows.filter((u: Record<string, unknown>) => {
           if (!u.user_id) return false;
+          if (candidateFilterOff) return true;
           const photoExists =
             u.photo_exists === true || u.photo_exists === 'true';
           const cardCount = parseInt(String(u.card_count ?? 0), 10) || 0;
@@ -409,10 +459,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             }
           }
         } catch (pageError) {
+          // The offset is the checkpoint; the cursor deliberately is not.
+          // Pages beyond this one were never walked, and some of those users
+          // may carry a LOWER `last_modified` than the pages that succeeded.
+          // Advancing the cursor here would put them behind it forever.
           state.lastProcessedOffset = offset;
           state.lastProcessedUserId =
             rows.length > 0 ? String(rows[rows.length - 1].user_id) : null;
-          state.lastModifiedCursor = maxLastModified;
           state.lastError = (pageError as Error)?.message ?? String(pageError);
           await this.biostarSyncStateRepository.save(state);
           this.logger.error(
@@ -425,7 +478,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         state.lastProcessedOffset = offset + limit;
         state.lastProcessedUserId =
           rows.length > 0 ? String(rows[rows.length - 1].user_id) : null;
-        state.lastModifiedCursor = maxLastModified;
         await this.biostarSyncStateRepository.save(state);
 
         offset += limit;
@@ -453,13 +505,26 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         );
       }
 
+      // The walk reached the end of the list unless the cap cut it short, so
+      // the resume offset has done its job. Left behind, it makes the NEXT
+      // non-incremental run start past the final page: it lists nobody, finds
+      // nothing to do, and reports success having synced no one at all.
+      if (!endedOnCap) {
+        state.lastProcessedOffset = null;
+        state.lastProcessedUserId = null;
+      }
+
       if (incompleteReasons.length === 0) {
         state.lastSuccessAt = new Date();
         state.lastError = null;
         state.lastModifiedCursor = maxLastModified;
+        if (!useIncremental) {
+          state.lastFullSyncAt = new Date();
+        }
       } else {
         // Leave lastSuccessAt and the cursor where they were so the next run
-        // re-covers the same ground instead of stepping over the gap.
+        // re-covers the same ground instead of stepping over the gap. The
+        // cursor was never written mid-run precisely so this is possible.
         state.lastError = `Run incomplete — ${incompleteReasons.join('; ')}`;
         this.logger.warn(`[Dasma Biostar] ${state.lastError}`);
       }
@@ -492,6 +557,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         direction: 'biostar-to-postgres',
         schemaEnv: 'dasma',
         incremental: useIncremental,
+        fullPass: !useIncremental,
+        fullSyncDue,
+        listGroupId: listGroupId || 'all',
+        candidateFilter: candidateFilterOff ? 'off' : 'photo-or-card',
         listRowKeys: firstListRowKeys,
         groupIdsSeen: [...groupIdsSeen],
         reportedTotal: reportedTotal,

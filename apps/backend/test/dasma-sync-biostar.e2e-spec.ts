@@ -653,6 +653,157 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
   });
 
   // ==================================================================
+  // Discovery — a user BioStar changed must never be stepped over
+  // ==================================================================
+  //
+  // Every fix below closes a way the pull could decide, on its own, that a
+  // user needs no looking at. The reported symptom is always the same from
+  // the outside: somebody uploads a photo in BioStar, the sync runs, and
+  // PostgreSQL still shows the old picture or none at all. The photo-writing
+  // code is not what fails in these cases — it is never reached, because the
+  // user never appears in the list the pull walks.
+  describe('discovery', () => {
+    const listRow = (over: Record<string, unknown> = {}) => ({
+      user_id: '12100001',
+      name: 'Dela Cruz, Juan',
+      photo_exists: true,
+      card_count: '1',
+      last_modified: '100',
+      ...over,
+    });
+
+    const listQueries = () =>
+      biostar.requestsTo('/api/users?').map((r) => r.url);
+
+    const state = () =>
+      dataSource
+        .getRepository(BiostarSyncState)
+        .findOne({ where: { schemaKey: 'dasma' } });
+
+    it('lists every BioStar group, not only group 1', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = { user_id: '12100001', photo: 'A' };
+
+      await service.syncFromBiostar('e2e-groups');
+
+      expect(listQueries()).not.toHaveLength(0);
+      for (const url of listQueries()) {
+        expect(url).not.toContain('group_id');
+      }
+    }, 60000);
+
+    it('narrows to one group when BIOSTAR_LIST_GROUP_ID says so', async () => {
+      const narrowed = await makeService({ BIOSTAR_LIST_GROUP_ID: '7' });
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = { user_id: '12100001', photo: 'A' };
+
+      await narrowed.syncFromBiostar('e2e-groups-narrow');
+
+      expect(listQueries()[0]).toContain('group_id=7');
+    }, 60000);
+
+    // A detail fetch that failed leaves that user unprocessed. Writing the
+    // cursor anyway means the next run asks BioStar only for users modified
+    // AFTER him, so he is never fetched again and his photo never lands.
+    it('holds the cursor back when a detail fetch failed', async () => {
+      biostar.listPages = [
+        {
+          total: 2,
+          rows: [
+            listRow({ user_id: '12100001', last_modified: '100' }),
+            listRow({ user_id: '12100002', last_modified: '200' }),
+          ],
+        },
+      ];
+      // 12100002 has no detail entry, so the fake answers 404.
+      biostar.userDetails['12100001'] = { user_id: '12100001', photo: 'A' };
+
+      await service.syncFromBiostar('e2e-cursor-hold');
+
+      const after = await state();
+      expect(after.lastModifiedCursor).toBeNull();
+      expect(after.lastSuccessAt).toBeNull();
+      expect(after.lastError).toContain('12100002');
+    }, 60000);
+
+    // The resume offset is a within-run checkpoint. Left behind after the
+    // walk reached the end, it makes the NEXT run start past the last page,
+    // so that run lists nobody at all and silently syncs nothing.
+    it('starts the next run at the beginning once a walk reached the end', async () => {
+      biostar.listPages = [
+        { total: 2, rows: [listRow({ user_id: '12100002' })] },
+      ];
+      await service.syncFromBiostar('e2e-offset-1');
+      expect((await state()).lastProcessedOffset).toBeNull();
+
+      // Second run: the photo is now there, and it must be picked up.
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/PICKED-UP',
+      };
+      await service.syncFromBiostar('e2e-offset-2');
+
+      expect(listQueries().at(-1)).toContain('offset=0');
+      expect((await byId('12100001')).Photo).toBe('/9j/PICKED-UP');
+    }, 90000);
+
+    // BioStar does not promise to bump `last_modified` for every change a
+    // photo upload makes. Incremental alone would never revisit that user, so
+    // a full pass has to come round on its own.
+    it('asks for everything again once the last full pass aged out', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = { user_id: '12100001', photo: 'A' };
+      await service.syncFromBiostar('e2e-full-1');
+
+      // Run 2, immediately after a clean run: incremental is correct here.
+      biostar.userDetails['12100001'] = { user_id: '12100001', photo: 'B' };
+      await service.syncFromBiostar('e2e-full-2');
+      expect(listQueries().at(-1)).toContain('last_modified=');
+
+      // Age the last full pass past the interval.
+      const repo = dataSource.getRepository(BiostarSyncState);
+      const row = await state();
+      row.lastFullSyncAt = new Date(Date.now() - 48 * 3600 * 1000);
+      await repo.save(row);
+
+      // The photo changed without `last_modified` moving — exactly the case
+      // incremental cannot see.
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/LATE-UPLOAD',
+      };
+      await service.syncFromBiostar('e2e-full-3');
+
+      expect(listQueries().at(-1)).not.toContain('last_modified=');
+      expect((await byId('12100001')).Photo).toBe('/9j/LATE-UPLOAD');
+      expect((await state()).lastFullSyncAt.getTime()).toBeGreaterThan(
+        Date.now() - 60_000,
+      );
+    }, 120000);
+
+    // The list filter is our only defence against fetching every detail on a
+    // large roster, but it trusts `photo_exists`. When that flag is wrong,
+    // the escape hatch has to exist and has to work.
+    it('fetches every listed user when the candidate filter is off', async () => {
+      const unfiltered = await makeService({
+        BIOSTAR_CANDIDATE_FILTER: 'off',
+      });
+      biostar.listPages = [
+        { total: 1, rows: [listRow({ photo_exists: false, card_count: '0' })] },
+      ];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/FLAG-WAS-WRONG',
+      };
+
+      await unfiltered.syncFromBiostar('e2e-nofilter');
+
+      expect((await byId('12100001')).Photo).toBe('/9j/FLAG-WAS-WRONG');
+    }, 60000);
+  });
+
+  // ==================================================================
   // A realistic roster, end to end
   // ==================================================================
   describe('a mixed roster', () => {

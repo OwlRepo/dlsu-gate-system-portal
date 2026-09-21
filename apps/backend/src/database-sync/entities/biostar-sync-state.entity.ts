@@ -33,6 +33,13 @@ export class BiostarSyncState {
   @Column({ type: 'timestamp', nullable: true })
   lastSuccessAt: Date | null;
 
+  /**
+   * When the pull last walked the WHOLE list rather than only the incremental
+   * slice. NULL means never, which forces a full pass on the next run.
+   */
+  @Column({ type: 'timestamp', nullable: true })
+  lastFullSyncAt: Date | null;
+
   @Column({ type: 'text', nullable: true })
   lastError: string | null;
 
