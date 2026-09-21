@@ -257,6 +257,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               (detail.photo as string | null) ??
               (userObj?.photo as string | null) ??
               null;
+            /** The photo BioStar actually sent, or null. "" is not an image. */
+            const sentPhoto =
+              typeof photo === 'string' && photo.trim() !== '' ? photo : null;
             const name =
               (detail.name as string | null) ??
               (userObj?.name as string | null) ??
@@ -311,18 +314,35 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               //
               // Absent flag means we were not told — the safe reading is to
               // leave the stored photo alone rather than guess.
-              const photoExistsRaw =
+              // Bytes beat the flag. `photo_exists` only has to settle what an
+              // ABSENT photo means; if an image actually arrived, BioStar
+              // plainly has one, whatever the flag claims. And an empty string
+              // is not an image — storing it blanks the avatar just as surely
+              // as null does.
+              //
+              // The flag is read loosely on purpose: it can only ever trigger a
+              // DELETE, so a case-sensitive match that mistook "TRUE" for "not
+              // true" would wipe a real photo.
+              const flagRaw =
                 (userObj?.photo_exists as unknown) ?? detail.photo_exists;
-              const biostarHasPhoto =
-                photoExistsRaw === undefined || photoExistsRaw === null
-                  ? null
-                  : String(photoExistsRaw) === 'true';
+              const saysNoPhoto =
+                flagRaw !== undefined &&
+                flagRaw !== null &&
+                String(flagRaw).trim().toLowerCase() === 'false';
+
+              // undefined here means "we were not told" — leave the stored
+              // photo exactly as it is.
+              let nextPhoto: string | null | undefined;
+              if (sentPhoto !== null) {
+                nextPhoto = sentPhoto;
+              } else if (saysNoPhoto) {
+                nextPhoto = null;
+              } else {
+                nextPhoto = undefined;
+              }
 
               const photoChanged =
-                biostarHasPhoto === false
-                  ? existingStudent.Photo != null // deleted over there
-                  : photo !== null && photo !== existingStudent.Photo;
-              const nextPhoto = biostarHasPhoto === false ? null : photo;
+                nextPhoto !== undefined && nextPhoto !== existingStudent.Photo;
               const existingUnique =
                 existingStudent.Unique_ID != null
                   ? String(existingStudent.Unique_ID).trim()
@@ -351,7 +371,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                   remarksBackfilled.push(cleanUserId);
                 }
                 if (photoChanged) {
-                  updatePayload.Photo = nextPhoto;
+                  updatePayload.Photo = nextPhoto as string | null;
                 }
                 if (nameChanged) {
                   updatePayload.Name = name ?? existingStudent.Name;
@@ -376,7 +396,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             } else {
               const newStudent = this.studentRepository.create({
                 ID_Number: cleanUserId,
-                Photo: photo,
+                Photo: sentPhoto,
                 Unique_ID: uniqueId,
                 Name: name,
                 isArchived: isArchivedFromBiostar,

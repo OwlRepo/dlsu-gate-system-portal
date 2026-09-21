@@ -133,6 +133,8 @@ async function main(): Promise<void> {
   let sentPhoto = 0;
   let deletedPhoto = 0;
   let omittedPhoto = 0;
+  let blankPhoto = 0;
+  let oddCaseFlag = 0;
 
   console.log(
     `soak: ${USERS.length} users x ${cycles} pulls against ${baseUrl}\n`,
@@ -178,7 +180,7 @@ async function main(): Promise<void> {
         };
         expectedPhoto.set(id, null);
         deletedPhoto++;
-      } else {
+      } else if (roll < 0.8) {
         // OMITTED — BioStar says a photo exists but did not send it. Ours
         // must survive untouched.
         photoExists = true;
@@ -190,6 +192,31 @@ async function main(): Promise<void> {
           cards: [{ card_id: card }],
         };
         omittedPhoto++;
+      } else if (roll < 0.9) {
+        // BLANK — an empty string where the image should be. Not an image,
+        // so it must not replace one.
+        photoExists = true;
+        biostar.userDetails[id] = {
+          user_id: id,
+          name: `Soak, User ${id}`,
+          disabled: 'false',
+          photo_exists: 'true',
+          photo: '',
+          cards: [{ card_id: card }],
+        };
+        blankPhoto++;
+      } else {
+        // ODD CASE — the flag in a different case, with no photo. Read
+        // strictly this would look like "no photo" and wipe a real one.
+        photoExists = true;
+        biostar.userDetails[id] = {
+          user_id: id,
+          name: `Soak, User ${id}`,
+          disabled: 'false',
+          photo_exists: 'TRUE',
+          cards: [{ card_id: card }],
+        };
+        oddCaseFlag++;
       }
 
       expectedCard.set(id, card);
@@ -238,6 +265,8 @@ async function main(): Promise<void> {
   console.log(`BioStar SENT a photo                 : ${sentPhoto}`);
   console.log(`BioStar had DELETED the photo        : ${deletedPhoto}`);
   console.log(`BioStar OMITTED an existing photo    : ${omittedPhoto}`);
+  console.log(`BioStar sent an EMPTY photo string   : ${blankPhoto}`);
+  console.log(`BioStar sent the flag in ODD case    : ${oddCaseFlag}`);
   console.log(`students in table                    : ${total}`);
   console.log(`students whose photo is NULL         : ${nullPhotos[0].n}`);
   console.log(`invariant violations                 : ${violations}`);

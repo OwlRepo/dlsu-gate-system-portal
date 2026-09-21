@@ -1065,6 +1065,340 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     // 6a — the cursor was compared as text, where "9" sorts above "10".
+
+    // ================================================================
+    // Edge and error cases on the photo, the card and the payload shape.
+    // These exist so the next one is not found in production.
+    // ================================================================
+
+    it('treats an empty-string photo as no photo, not as a new one', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ card_count: '1' })] }];
+      biostarDetails = {
+        '12100001': {
+          User: {
+            user_id: '12100001',
+            name: 'Dela Cruz, Juan',
+            disabled: 'false',
+            photo: '',
+            photo_exists: 'true',
+            cards: [{ card_id: '5551234' }],
+          },
+        },
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      // An empty string is not an image. Storing it would blank the avatar
+      // just as surely as null would.
+      expect(studentRepo.byId('12100001').Photo).toBe('/9j/ALREADYSTORED');
+    });
+
+    it('keeps the photo when the flag says TRUE in a different case', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ card_count: '1' })] }];
+      biostarDetails = {
+        '12100001': {
+          User: {
+            user_id: '12100001',
+            name: 'Dela Cruz, Juan',
+            disabled: 'false',
+            photo_exists: 'TRUE',
+            cards: [{ card_id: '5551234' }],
+          },
+        },
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      // A case-sensitive read of the flag would call this "no photo" and wipe
+      // a real one. The flag decides whether to DELETE; it must be read loosely.
+      expect(studentRepo.byId('12100001').Photo).toBe('/9j/ALREADYSTORED');
+    });
+
+    it('stores a photo BioStar actually sent even if the flag disagrees', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ card_count: '1' })] }];
+      biostarDetails = {
+        '12100001': {
+          User: {
+            user_id: '12100001',
+            name: 'Dela Cruz, Juan',
+            disabled: 'false',
+            photo: '/9j/REALBYTES',
+            photo_exists: 'false',
+            cards: [{ card_id: '5551234' }],
+          },
+        },
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      // Bytes beat the flag. The flag only has to settle what an ABSENT photo
+      // means; if an image arrived, BioStar plainly has one.
+      expect(studentRepo.byId('12100001').Photo).toBe('/9j/REALBYTES');
+    });
+
+    it('honours photo_exists on an unwrapped detail payload', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [
+        { total: 1, rows: [listRow({ photo_exists: false, card_count: '1' })] },
+      ];
+      // No `User` wrapper — the other shape the code accepts.
+      biostarDetails = {
+        '12100001': {
+          user_id: '12100001',
+          name: 'Dela Cruz, Juan',
+          disabled: 'false',
+          photo_exists: 'false',
+          cards: [{ card_id: '5551234' }],
+        },
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').Photo).toBeNull();
+    });
+
+    it('creates a photoless student without inventing a photo', async () => {
+      biostarPages = [
+        { total: 1, rows: [listRow({ photo_exists: false, card_count: '1' })] },
+      ];
+      biostarDetails = {
+        '12100001': {
+          User: {
+            user_id: '12100001',
+            name: 'Dela Cruz, Juan',
+            disabled: 'false',
+            photo_exists: 'false',
+            cards: [{ card_id: '5551234' }],
+          },
+        },
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      const stored = studentRepo.byId('12100001');
+      expect(stored.Photo).toBeNull();
+      expect(stored.Unique_ID).toBe('5551234');
+    });
+
+    // ---------------- the card side ----------------
+
+    it('leaves the stored card alone when the detail carries no cards array', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow()] }];
+      biostarDetails = { '12100001': detail() };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').Unique_ID).toBe('1111111');
+    });
+
+    it('leaves the stored card alone when cards is an empty array', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow()] }];
+      biostarDetails = { '12100001': detail({ cards: [] }) };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').Unique_ID).toBe('1111111');
+    });
+
+    it('leaves the stored card alone when the card id is blank', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow()] }];
+      biostarDetails = { '12100001': detail({ cards: [{ card_id: '   ' }] }) };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').Unique_ID).toBe('1111111');
+    });
+
+    it('reads a card from the credentials shape as well as the cards shape', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow()] }];
+      biostarDetails = {
+        '12100001': detail({
+          credentials: { cards: [{ cardID: '7654321' }] },
+        }),
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').Unique_ID).toBe('7654321');
+    });
+
+    /**
+     * Documents a REAL asymmetry rather than asserting it is desirable.
+     *
+     * A card deleted in BioStar does not clear here, because a missing card is
+     * read as "not told". The roster export then sends the stale card back in
+     * the `csn` cell, which re-creates it. So deleting a card in the BioStar UI
+     * is undone by the next sync. The photo now has `photo_exists` to settle
+     * the same ambiguity; the card has `card_count` on the list row and does
+     * not use it.
+     */
+    it('does NOT clear a card deleted in BioStar — known gap, pinned here', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [
+        { total: 1, rows: [listRow({ card_count: '0', photo_exists: true })] },
+      ];
+      biostarDetails = { '12100001': detail({ cards: [] }) };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').Unique_ID).toBe('1111111');
+    });
+
+    // ---------------- error paths ----------------
+
+    it('writes nothing for a user BioStar could not be reached for', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ card_count: '1' })] }];
+      biostarUnreachable.add('12100001');
+
+      await service.syncFromBiostar('biostar-1');
+
+      const stored = studentRepo.byId('12100001');
+      expect(stored.Photo).toBe('/9j/ALREADYSTORED');
+      expect(stored.Unique_ID).toBe('1111111');
+      // A run that lost someone must not advance the cursor past them.
+      expect(biostarState.lastSuccessAt).toBeNull();
+    });
+
+    it('survives a detail payload that is an empty object', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [{ total: 1, rows: [listRow({ card_count: '1' })] }];
+      biostarDetails = { '12100001': {} };
+
+      await expect(
+        service.syncFromBiostar('biostar-1'),
+      ).resolves.toBeUndefined();
+
+      const stored = studentRepo.byId('12100001');
+      expect(stored.Photo).toBe('/9j/ALREADYSTORED');
+      expect(stored.Name).toBe('Dela Cruz, Juan');
+    });
+
+    it('handles the same user appearing twice in one list page', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Unique_ID: '1111111',
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [
+        {
+          total: 2,
+          rows: [listRow({ card_count: '1' }), listRow({ card_count: '1' })],
+        },
+      ];
+      biostarDetails = {
+        '12100001': detail({ photo: '/9j/NEW', photo_exists: 'true' }),
+      };
+
+      await expect(
+        service.syncFromBiostar('biostar-1'),
+      ).resolves.toBeUndefined();
+
+      expect(
+        studentRepo.rows.filter((r) => r.ID_Number === '12100001'),
+      ).toHaveLength(1);
+      expect(studentRepo.byId('12100001').Photo).toBe('/9j/NEW');
+    });
+
     it('advances the incremental cursor numerically, not lexicographically', async () => {
       biostarPages = [
         {
