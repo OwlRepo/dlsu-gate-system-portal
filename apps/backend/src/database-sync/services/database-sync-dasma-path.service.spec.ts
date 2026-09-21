@@ -1998,6 +1998,66 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(latestCsv().map((r) => r.user_id)).toEqual(['12100001']);
     });
 
+    // Whatever case or spelling the source uses for "there is nothing here".
+    it.each([
+      ['NULL'],
+      ['null'],
+      ['Null'],
+      ['  NULL  '],
+      ['N/A'],
+      ['n/a'],
+      ['NONE'],
+      ['-'],
+      ['.'],
+    ])('drops a middle name the source sent as %p', async (placeholder) => {
+      sourceRows = [
+        sourceRow({
+          LastName: 'Reyes',
+          FirstName: 'Ana',
+          MiddleName: placeholder,
+        }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('manual-1');
+
+      expect(latestCsv()[0].name).toBe('Reyes Ana');
+    });
+
+    it('drops a placeholder surname without losing the rest of the name', async () => {
+      sourceRows = [
+        sourceRow({ LastName: 'NULL', FirstName: 'Ana', MiddleName: 'Reyes' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('manual-1');
+
+      expect(latestCsv()[0].name).toBe('Ana Reyes');
+    });
+
+    // The one case where cleaning must NOT win. Every part is a placeholder, so
+    // a clean name would be empty — and an empty name is dropped from the batch
+    // by the guard above, which means that person silently stops being updated
+    // at the gate. Keeping the unclean name is the lesser harm, and it is
+    // reported rather than done quietly.
+    it('keeps the unclean name rather than dropping the person entirely', async () => {
+      sourceRows = [
+        sourceRow({
+          ID: '12100003',
+          LastName: 'NULL',
+          FirstName: 'NULL',
+          MiddleName: null,
+          Suffix: null,
+        }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('manual-1');
+
+      expect(latestCsv().map((r) => r.user_id)).toEqual(['12100003']);
+      expect(latestCsv()[0].name).toBe('NULL NULL');
+    });
+
     it('archives people who disappear from the source view', async () => {
       sourceRows = [
         sourceRow({ ID: '12100001' }),

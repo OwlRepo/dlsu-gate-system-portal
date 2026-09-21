@@ -274,12 +274,16 @@ export class FakeBiostarServer {
       // generous than the real thing and hid an entire class of bug — a user
       // BioStar never returns cannot be fetched, updated, or noticed missing.
       //
-      // Strictly-newer is the pessimistic reading of the two plausible ones.
-      // The test that matters asserts we no longer send the parameter at all,
-      // so which one BioStar actually implements stops being load-bearing.
+      // Suprema documents the comparison as INCLUSIVE: the endpoint "returns
+      // records with last_modified >= this value". So the user sitting exactly
+      // on the cursor comes back on every run, and a caller that stores the
+      // highest value it saw re-reads that row next time. Matching the
+      // documented server matters even though this code no longer sends the
+      // parameter — a double that contradicts the real thing is worse than no
+      // double at all.
       const since = params.get('last_modified');
       const rows = since
-        ? page.rows.filter((r) => Number(r.last_modified ?? 0) > Number(since))
+        ? page.rows.filter((r) => Number(r.last_modified ?? 0) >= Number(since))
         : page.rows;
 
       this.json(res, 200, {

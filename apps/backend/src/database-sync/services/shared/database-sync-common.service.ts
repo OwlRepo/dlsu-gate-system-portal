@@ -104,6 +104,63 @@ export class DatabaseSyncCommonService {
     return userId;
   }
 
+  /**
+   * Words the DLSU source view sends to mean "there is nothing here".
+   *
+   * The view does not send SQL NULL for an absent middle name or suffix — it
+   * sends the four-character TEXT "NULL". Everything downstream gated on
+   * truthiness, and a non-empty string is truthy, so the word travelled all the
+   * way to the gate: a live export on 2026-09-21 carried
+   * "DELA CRUZ MARIA RACHEL NULL NULL" as a student's name, and BioStar showed
+   * it to a guard.
+   *
+   * Bare "NA" and "UNKNOWN" are deliberately NOT here. "NA" is plausible as
+   * real initials or a real suffix, and discarding part of somebody's actual
+   * name is worse than carrying a stray placeholder.
+   */
+  private static readonly NAME_PLACEHOLDERS = new Set([
+    'NULL',
+    'N/A',
+    'NONE',
+    '-',
+    '.',
+  ]);
+
+  /**
+   * Is this name part a placeholder rather than part of somebody's name?
+   *
+   * Matches a WHOLE part only, never a substring, so the surname "Nullova" and
+   * the middle name "Nonesuch" are left alone.
+   */
+  isPlaceholderNamePart(value: unknown): boolean {
+    if (value == null) return true;
+    const trimmed = String(value).trim();
+    if (trimmed === '') return true;
+    return DatabaseSyncCommonService.NAME_PLACEHOLDERS.has(
+      trimmed.toUpperCase(),
+    );
+  }
+
+  /**
+   * Removes placeholder words from a name that has already been assembled.
+   *
+   * Needed for the inbound direction: BioStar hands back one finished string,
+   * not the four source columns. Since we exported the dirty names in the first
+   * place, BioStar is still holding them, and the pull writes whatever it reads
+   * straight back into PostgreSQL — so without this a cleaned row is re-dirtied
+   * on the next pull.
+   *
+   * Returns null when nothing survives, which callers read as "no usable name".
+   */
+  scrubNameTokens(name: string | null | undefined): string | null {
+    if (name == null) return null;
+    const kept = String(name)
+      .split(/\s+/)
+      .filter((token) => !this.isPlaceholderNamePart(token.replace(/,+$/, '')));
+    const cleaned = kept.join(' ').trim();
+    return cleaned === '' ? null : cleaned;
+  }
+
   normalizeGroupValue(val: any): string | null {
     if (val == null || val === '') return null;
     const trimmed = String(val).trim();

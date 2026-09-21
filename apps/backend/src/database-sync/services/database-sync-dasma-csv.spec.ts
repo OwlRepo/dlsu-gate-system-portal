@@ -501,6 +501,55 @@ describe('Dasma CSV — rendered bytes and volume', () => {
     expect(latestLines()[1]).not.toContain('"');
   });
 
+  // The DLSU source view does not send SQL NULL for an absent middle name or
+  // suffix — it sends the four-character TEXT "NULL". The assembler gated on
+  // truthiness, and a non-empty string is truthy, so the word travelled all the
+  // way to the gate: a live export on 2026-09-21 carried
+  // "DELA CRUZ MARIA RACHEL NULL NULL" as a student's name.
+  it('drops a middle name and suffix the source sent as the word NULL', async () => {
+    sourceRows = [
+      sourceRow({
+        LastName: 'Dela Cruz',
+        FirstName: 'Maria Rachel',
+        MiddleName: 'NULL',
+        Suffix: 'NULL',
+      }),
+    ];
+    await service.executeDatabaseSync('run-1');
+
+    expect(latestLines()[1]).toContain('Dela Cruz Maria Rachel');
+    expect(latestLines()[1]).not.toContain('NULL');
+  });
+
+  it('keeps a middle name and suffix the source actually sent', async () => {
+    sourceRows = [
+      sourceRow({
+        LastName: 'Dela Cruz',
+        FirstName: 'Juan',
+        MiddleName: 'Santos',
+        Suffix: 'Jr',
+      }),
+    ];
+    await service.executeDatabaseSync('run-1');
+
+    expect(latestLines()[1]).toContain('Dela Cruz Juan Santos Jr');
+  });
+
+  // The guard matches a whole part, never a substring, so a real surname that
+  // merely contains those letters is untouched.
+  it('leaves a real name that merely contains the letters alone', async () => {
+    sourceRows = [
+      sourceRow({
+        LastName: 'Nullova',
+        FirstName: 'Ana',
+        MiddleName: 'Nonesuch',
+      }),
+    ];
+    await service.executeDatabaseSync('run-1');
+
+    expect(latestLines()[1]).toContain('Nullova Ana Nonesuch');
+  });
+
   // ------------------------------------------------------------------
   // Boundary
   // ------------------------------------------------------------------

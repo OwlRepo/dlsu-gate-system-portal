@@ -222,3 +222,66 @@ the one to check** — it should report `rowsEmitted: 0` and make no imports.
   pagination before the roster grows.
 - **The main (MTL) sync path** still recomputes expiry from today on every run —
   the original tracker complaint, in the path this work did not touch.
+
+---
+
+## Addendum, 2026-09-22 — measured BioStar behaviour, and two corrections
+
+Prompted by a report that photos were not reaching PostgreSQL, the captured
+payloads in `apps/backend/logs/scenario/baseline.json` (34 users, live server,
+2026-09-10) were read directly instead of reasoned about, and checked against
+Suprema's own documentation.
+
+### What the real server sends
+
+| Field | Actual value |
+|---|---|
+| `photo_exists` (list row) | string `'true'` (4 users) / `'false'` (30) |
+| `photo` (detail) | present for all 4 — 14,092 to 16,252 characters of base64 |
+| `face_count` / `visual_face_count` | `'0'` / `'1'` for all 4 |
+| `card_count` | string `'0'`, `'1'`, `'3'` |
+| `last_modified` | numeric string counter |
+| `user_group_id` | `{"id": "1", "name": "All Users"}` on all 34 rows |
+
+Documented by Suprema: `group_id` defaults to 1 and **1 shows all**;
+`last_modified` returns records **`>=`** the supplied value; the list carries
+`photo_exists` only and never photo data; a photo is written with
+`PUT /api/users/:id` and `"photo": ""` unregisters it.
+
+**This settles the face-credential question** left open on 2026-09-21. The image
+is enrolled as a visual face (`visual_face_count: '1'`, `face_count: '0'`) and
+the detail endpoint returns it in `photo` regardless. No separate credential
+fetch is needed, and none is missing.
+
+### Two corrections to earlier claims
+
+1. **Removing the hardcoded `group_id: 1` was a no-op, not a fix.** The commit
+   that removed it described a person moved to another group silently ceasing to
+   sync. Every user on this server is in group 1, and group 1 is the "All Users"
+   root that returns everything, so the parameter and its absence behave
+   identically. The change is harmless and `BIOSTAR_LIST_GROUP_ID` is still a
+   useful escape hatch, but the claimed defect was never demonstrated.
+2. **The test double had the wrong comparison.** `FakeBiostarServer` filtered
+   `last_modified` as strictly-newer; Suprema documents it as inclusive. Now
+   corrected. A double that contradicts the documented server is worse than none.
+
+A third planned fix was dropped: the strict list-row parse of `photo_exists` is
+correct, because the server answers with the exact lowercase string.
+
+### Replaying the capture
+
+`apps/backend/scripts/scenario/biostar-replay.ts` serves those 34 rows and 34
+details verbatim to the real service against a real PostgreSQL, starting from
+the production-observed state of every `Photo` NULL. Photos are rebuilt to their
+recorded lengths, so no biometric data lives in the repo.
+
+```bash
+bun --cwd apps/backend scripts/scenario/biostar-replay.ts
+```
+
+It passes: 9 candidates fetched, 4 photos stored, second run silent. **The pull
+logic on `main` lands every photo the real server sends**, so a production
+failure is not explained by this code and the deployed build has to be
+identified from `apps/backend/logs/diagnostics/diag_*.json` — a file containing
+`incremental` predates 2026-09-21; one containing `driftReads` and `deepPass` is
+current.

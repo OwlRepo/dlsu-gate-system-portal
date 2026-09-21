@@ -471,6 +471,27 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       expect(stored.Unique_ID).toBe('5551234');
     }, 90000);
 
+    // BioStar is still holding the placeholder-laden names we exported before
+    // the source-side fix shipped, and this pull writes what it reads straight
+    // back into PostgreSQL. Without scrubbing here, a row cleaned by the roster
+    // sync is re-dirtied by the very next pull.
+    it('scrubs a placeholder out of a name BioStar hands back', async () => {
+      await service.executeDatabaseSync('e2e-1');
+
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        name: 'Dela Cruz, Maria NULL',
+        photo: '/9j/4AAQSkZJRgABAQAAAQ',
+        disabled: 'false',
+        cards: [{ card_id: '5551234' }],
+      };
+
+      await service.syncFromBiostar('e2e-inbound-name');
+
+      expect((await byId('12100001')).Name).toBe('Dela Cruz, Maria');
+    }, 90000);
+
     /**
      * A second pull that returns no photo must not erase the first one.
      *

@@ -360,10 +360,16 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             /** The photo BioStar actually sent, or null. "" is not an image. */
             const sentPhoto =
               typeof photo === 'string' && photo.trim() !== '' ? photo : null;
-            const name =
+            // Scrubbed on the way in as well as on the way out. BioStar is
+            // still holding the placeholder-laden names we exported before the
+            // fix, and this pull writes what it reads straight back into
+            // PostgreSQL — so without this a cleaned row is re-dirtied on the
+            // very next pull.
+            const name = this.commonService.scrubNameTokens(
               (detail.name as string | null) ??
-              (userObj?.name as string | null) ??
-              null;
+                (userObj?.name as string | null) ??
+                null,
+            );
             const uniqueId = this.normalizeUniqueIdValue(
               this.extractBiostarCardValue(detail),
             );
@@ -1074,6 +1080,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       let csvDuplicateRowsDropped = 0;
       const expiryFallbackUsed: string[] = [];
       /**
+       * Students whose every name part was a placeholder, so the source name
+       * was kept rather than cleaned. Not an error — the alternative is an
+       * empty name, which drops them from the batch entirely — but each one is
+       * a row whose upstream data needs fixing at the source.
+       */
+      const placeholderNameKept: string[] = [];
+      /**
        * Disabled rows whose window had to be anchored to today because
        * `date_deactivated` was never stamped. Must stay empty: anything here
        * re-exports every single day, which is the churn this path exists to
@@ -1145,6 +1158,18 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         const normalizedRecords = batchRecords.map((record) =>
           this.normalizeRecord(record),
         );
+
+        // A name that scrubs away to nothing is one `normalizeRecord` had to
+        // leave unclean. Derived here rather than passed back, so the assembled
+        // record keeps exactly the shape the rest of this path expects.
+        for (const record of normalizedRecords) {
+          if (
+            record.Name &&
+            this.commonService.scrubNameTokens(record.Name) === null
+          ) {
+            placeholderNameKept.push(record.ID_Number);
+          }
+        }
 
         const batchRecordsWithPhoto = normalizedRecords.map((record) => ({
           ...record,
@@ -2170,6 +2195,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         disabledAnchorFallbackUsed: this.commonService.capIds(
           disabledAnchorFallbackUsed,
         ),
+        // Rows whose whole name is placeholder text in the source. Not a sync
+        // failure — a data-quality list to hand back to whoever owns the view.
+        placeholderNameKept: this.commonService.capIds(placeholderNameKept),
 
         // How much of this run changed at the database level.
         rowsChanged,
@@ -2274,11 +2302,31 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   }
 
   private normalizeRecord(record: any): any {
-    const nameParts: string[] = [];
-    if (record.LastName) nameParts.push(record.LastName.trim());
-    if (record.FirstName) nameParts.push(record.FirstName.trim());
-    if (record.MiddleName) nameParts.push(record.MiddleName.trim());
-    if (record.Suffix) nameParts.push(record.Suffix.trim());
+    const rawParts: string[] = [];
+    if (record.LastName) rawParts.push(record.LastName.trim());
+    if (record.FirstName) rawParts.push(record.FirstName.trim());
+    if (record.MiddleName) rawParts.push(record.MiddleName.trim());
+    if (record.Suffix) rawParts.push(record.Suffix.trim());
+
+    // The source view sends the literal TEXT "NULL" for an absent middle name
+    // or suffix, and this gate used to be truthiness alone — so the word became
+    // part of the person's name and reached BioStar.
+    const cleanParts = rawParts.filter(
+      (part) => !this.commonService.isPlaceholderNamePart(part),
+    );
+
+    // Falling back is deliberate, for the one case where cleaning would win too
+    // hard: every part is a placeholder, so the clean name is empty, and an
+    // empty name is dropped from the batch by the validation guard in the CSV
+    // build. A dropped row is a person who silently stops being updated at the
+    // gate, which is worse than a stray placeholder in their name. Keep the
+    // unclean name and say so.
+    const nameParts = cleanParts.length > 0 ? cleanParts : rawParts;
+    if (cleanParts.length === 0 && rawParts.length > 0) {
+      this.logger.warn(
+        `[Dasma] Every name part is a placeholder for ID ${record.ID}; keeping the source name rather than dropping the record`,
+      );
+    }
 
     let fullName = '';
     if (nameParts.length > 0) {
