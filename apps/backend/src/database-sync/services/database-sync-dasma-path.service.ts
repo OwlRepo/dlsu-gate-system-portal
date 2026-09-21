@@ -293,21 +293,36 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               const remarkNeedsClearing =
                 postgresRemark === null && !!biostarRemark;
 
-              // Guarded the same way the card is, two lines down.
+              // A missing `photo` is ambiguous, and the two meanings need
+              // opposite handling:
               //
-              // BioStar answers without a photo for anyone who became a
-              // candidate by card alone — 4 of 8 fetched users in a live pull
-              // on 2026-09-10. Unguarded, that wrote null straight over a photo
-              // we already held, so the card survived and the picture vanished,
-              // then vanished again on the next such run. Nothing else on the
-              // Dasma path can restore it: the outbound CSV has no photo
-              // column, so this inbound copy is the only one that exists.
+              //   - the photo was DELETED in BioStar. Ours must follow, or a
+              //     stale face stays on the gate screen — worse than no face,
+              //     because a guard may be shown the wrong person.
+              //   - the reply simply did not carry it. Ours must survive:
+              //     nothing on the Dasma path can put it back, since the
+              //     outbound CSV has no photo column and this inbound copy is
+              //     the only one that exists.
               //
-              // An absent photo means "BioStar did not tell us", never "this
-              // person has no photo". Only a photo BioStar actually sent can
-              // replace the stored one.
+              // `photo_exists` is BioStar's own statement of which it is, and
+              // it is carried on the user detail. Measured against the 34 users
+              // captured live on 2026-09-10: every detail carried the flag, and
+              // it agreed with whether `photo` was present in 34 of 34 cases.
+              //
+              // Absent flag means we were not told — the safe reading is to
+              // leave the stored photo alone rather than guess.
+              const photoExistsRaw =
+                (userObj?.photo_exists as unknown) ?? detail.photo_exists;
+              const biostarHasPhoto =
+                photoExistsRaw === undefined || photoExistsRaw === null
+                  ? null
+                  : String(photoExistsRaw) === 'true';
+
               const photoChanged =
-                photo !== null && photo !== existingStudent.Photo;
+                biostarHasPhoto === false
+                  ? existingStudent.Photo != null // deleted over there
+                  : photo !== null && photo !== existingStudent.Photo;
+              const nextPhoto = biostarHasPhoto === false ? null : photo;
               const existingUnique =
                 existingStudent.Unique_ID != null
                   ? String(existingStudent.Unique_ID).trim()
@@ -336,7 +351,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                   remarksBackfilled.push(cleanUserId);
                 }
                 if (photoChanged) {
-                  updatePayload.Photo = photo;
+                  updatePayload.Photo = nextPhoto;
                 }
                 if (nameChanged) {
                   updatePayload.Name = name ?? existingStudent.Name;

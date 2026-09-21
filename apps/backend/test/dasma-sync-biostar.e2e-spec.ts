@@ -505,10 +505,12 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
           rows: [listRow({ last_modified: '200', photo_exists: false })],
         },
       ];
+      // Says it still has a photo, just did not include it in the reply.
       biostar.userDetails['12100001'] = {
         user_id: '12100001',
         name: 'Dela Cruz, Juan',
         disabled: 'false',
+        photo_exists: 'true',
         cards: [{ card_id: '5559999' }],
       };
       await service.syncFromBiostar('e2e-photo-2');
@@ -518,6 +520,46 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       expect(stored?.Photo).toBe('/9j/4AAQSkZJRgABAQAAAQ');
       // ...and the card still updated, so the guard blocks nothing real.
       expect(stored?.Unique_ID).toBe('5559999');
+    }, 90000);
+
+    /**
+     * The other half: a photo deleted in BioStar must disappear here too.
+     *
+     * Keeping it would leave a stale face on the gate screen, and a guard
+     * shown the wrong person's face is worse off than one shown none.
+     */
+    it('clears the photo when BioStar reports the person no longer has one', async () => {
+      await service.executeDatabaseSync('e2e-1');
+
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        name: 'Dela Cruz, Juan',
+        photo: '/9j/4AAQSkZJRgABAQAAAQ',
+        photo_exists: 'true',
+        disabled: 'false',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-del-1');
+      expect((await byId('12100001'))?.Photo).toBe('/9j/4AAQSkZJRgABAQAAAQ');
+
+      // Somebody deletes the photo in BioStar.
+      biostar.listPages = [
+        {
+          total: 1,
+          rows: [listRow({ last_modified: '200', photo_exists: false })],
+        },
+      ];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        name: 'Dela Cruz, Juan',
+        photo_exists: 'false',
+        disabled: 'false',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-del-2');
+
+      expect((await byId('12100001'))?.Photo).toBeNull();
     }, 90000);
 
     // THE WHOLE POINT OF THE PHOTO FIX, proven end to end over real HTTP and

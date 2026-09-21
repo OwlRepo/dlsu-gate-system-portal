@@ -124,12 +124,15 @@ async function main(): Promise<void> {
     } as Partial<Student>);
   }
 
-  const expectedPhoto = new Map(USERS.map((id) => [id, photoFor(id, 0)]));
+  const expectedPhoto = new Map<string, string | null>(
+    USERS.map((id) => [id, photoFor(id, 0)]),
+  );
   const expectedCard = new Map<string, string>();
   let modified = 100;
   let violations = 0;
-  let pullsWithPhoto = 0;
-  let pullsWithoutPhoto = 0;
+  let sentPhoto = 0;
+  let deletedPhoto = 0;
+  let omittedPhoto = 0;
 
   console.log(
     `soak: ${USERS.length} users x ${cycles} pulls against ${baseUrl}\n`,
@@ -140,37 +143,60 @@ async function main(): Promise<void> {
     biostar.userDetails = {};
 
     for (const id of USERS) {
-      // What BioStar happens to say about this person this time round.
-      const sendsPhoto = rand() < 0.4;
+      // One of the three things BioStar can say about this person, which is
+      // the whole point: a deletion and an incomplete reply both arrive as
+      // "no photo in the payload" and must be handled oppositely.
+      const roll = rand();
       const card = String(5550000 + Math.floor(rand() * 9999));
       modified += 1;
 
-      if (sendsPhoto) {
-        const p = photoFor(id, cycle);
+      let photoExists: boolean;
+      if (roll < 0.4) {
+        // SENT — BioStar has a photo and includes it.
+        const photo = photoFor(id, cycle);
+        photoExists = true;
         biostar.userDetails[id] = {
           user_id: id,
           name: `Soak, User ${id}`,
           disabled: 'false',
-          photo: p,
+          photo_exists: 'true',
+          photo,
           cards: [{ card_id: card }],
         };
-        expectedPhoto.set(id, p);
-        pullsWithPhoto++;
+        expectedPhoto.set(id, photo);
+        sentPhoto++;
+      } else if (roll < 0.6) {
+        // DELETED — somebody removed the photo in BioStar. Ours must follow,
+        // or a guard is shown a face that is no longer the right one.
+        photoExists = false;
+        biostar.userDetails[id] = {
+          user_id: id,
+          name: `Soak, User ${id}`,
+          disabled: 'false',
+          photo_exists: 'false',
+          cards: [{ card_id: card }],
+        };
+        expectedPhoto.set(id, null);
+        deletedPhoto++;
       } else {
-        // Candidate by card alone — the reply carries no photo at all.
+        // OMITTED — BioStar says a photo exists but did not send it. Ours
+        // must survive untouched.
+        photoExists = true;
         biostar.userDetails[id] = {
           user_id: id,
           name: `Soak, User ${id}`,
           disabled: 'false',
+          photo_exists: 'true',
           cards: [{ card_id: card }],
         };
-        pullsWithoutPhoto++;
+        omittedPhoto++;
       }
+
       expectedCard.set(id, card);
       rows.push({
         user_id: id,
         name: `Soak, User ${id}`,
-        photo_exists: sendsPhoto,
+        photo_exists: photoExists,
         card_count: '1',
         last_modified: String(modified),
       });
@@ -182,11 +208,13 @@ async function main(): Promise<void> {
     for (const id of USERS) {
       const row = await students.findOne({ where: { ID_Number: id } });
       const want = expectedPhoto.get(id);
-      if (row?.Photo !== want) {
+      const got = row?.Photo ?? null;
+      if (got !== want) {
         violations++;
         console.log(
           `  VIOLATION cycle ${cycle} user ${id}: photo is ` +
-            `${row?.Photo == null ? 'NULL' : 'a different value'}, expected the stored one`,
+            `${got === null ? 'NULL' : 'a value'}, expected ` +
+            `${want === null ? 'NULL' : 'the stored one'}`,
         );
       }
       if (String(row?.Unique_ID ?? '') !== expectedCard.get(id)) {
@@ -207,12 +235,17 @@ async function main(): Promise<void> {
   )) as { n: number }[];
 
   console.log('\n' + '='.repeat(62));
-  console.log(`pulls where BioStar sent a photo     : ${pullsWithPhoto}`);
-  console.log(`pulls where BioStar sent NO photo    : ${pullsWithoutPhoto}`);
+  console.log(`BioStar SENT a photo                 : ${sentPhoto}`);
+  console.log(`BioStar had DELETED the photo        : ${deletedPhoto}`);
+  console.log(`BioStar OMITTED an existing photo    : ${omittedPhoto}`);
   console.log(`students in table                    : ${total}`);
   console.log(`students whose photo is NULL         : ${nullPhotos[0].n}`);
   console.log(`invariant violations                 : ${violations}`);
-  console.log(violations === 0 ? 'PASS — no photo was ever lost.' : 'FAIL');
+  console.log(
+    violations === 0
+      ? 'PASS — deletions propagated, omissions never lost a photo.'
+      : 'FAIL',
+  );
   console.log('='.repeat(62));
 
   await biostar.close();

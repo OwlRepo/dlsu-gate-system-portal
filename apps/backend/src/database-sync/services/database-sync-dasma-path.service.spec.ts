@@ -921,20 +921,80 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     /**
-     * A reply with no photo must not erase the photo we already hold.
+     * `photo_exists` is BioStar's own statement about whether the person has a
+     * photo, and it is the only thing that separates two situations a bare
+     * missing `photo` field cannot:
      *
-     * The card is already protected this way — `uniqueIdChanged` is guarded by
-     * `uniqueId !== null`, so a missing card never blanks a stored one. The
-     * photo had no such guard, so a detail that came back without one wrote
-     * null straight over it. That produces exactly the reported symptom: the
-     * card survives, the picture disappears, and it comes back "wala ULIT" —
-     * missing again — every time BioStar answers without a photo.
+     *   - the photo was deliberately deleted over there, and ours must follow
+     *   - the reply simply did not carry it, and ours must survive
      *
-     * BioStar genuinely does answer without one: in a live pull on 2026-09-10,
-     * 4 of 8 fetched users had no photo in their detail, because they were
-     * candidates by card alone.
+     * Checked against the 34 users captured live on 2026-09-10: `photo_exists`
+     * agreed with whether the detail carried a photo in 34 of 34 cases, and
+     * every detail payload carried the flag.
      */
-    it('keeps the stored photo when BioStar answers without one', async () => {
+    it('clears the photo when BioStar says the person no longer has one', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [
+        { total: 1, rows: [listRow({ photo_exists: false, card_count: '1' })] },
+      ];
+      biostarDetails = {
+        '12100001': {
+          User: {
+            user_id: '12100001',
+            name: 'Dela Cruz, Juan',
+            disabled: 'false',
+            photo_exists: 'false',
+            cards: [{ card_id: '5551234' }],
+          },
+        },
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      // Deliberate removal propagates — otherwise a stale face stays on the
+      // gate screen, which is worse than no face at all.
+      expect(studentRepo.byId('12100001').Photo).toBeNull();
+    });
+
+    it('keeps the stored photo when BioStar says one exists but does not send it', async () => {
+      studentRepo.rows.push({
+        ID_Number: '12100001',
+        Name: 'Dela Cruz, Juan',
+        Photo: '/9j/ALREADYSTORED',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+      } as Student);
+      biostarPages = [
+        { total: 1, rows: [listRow({ photo_exists: true, card_count: '1' })] },
+      ];
+      // Says it has one, did not include it: an incomplete reply, not a removal.
+      biostarDetails = {
+        '12100001': {
+          User: {
+            user_id: '12100001',
+            name: 'Dela Cruz, Juan',
+            disabled: 'false',
+            photo_exists: 'true',
+            cards: [{ card_id: '5551234' }],
+          },
+        },
+      };
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId('12100001').Photo).toBe('/9j/ALREADYSTORED');
+      expect(studentRepo.byId('12100001').Unique_ID).toBe('5551234');
+    });
+
+    it('leaves the photo alone when BioStar does not say either way', async () => {
       studentRepo.rows.push({
         ID_Number: '12100001',
         Name: 'Dela Cruz, Juan',
@@ -944,7 +1004,7 @@ describe('DatabaseSyncDasmaPathService', () => {
         remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
       } as Student);
       biostarPages = [{ total: 1, rows: [listRow({ card_count: '1' })] }];
-      // Card present, photo absent — the card-only candidate case.
+      // No photo_exists at all — unknown, so the safe answer is to not touch it.
       biostarDetails = {
         '12100001': {
           User: {
@@ -958,10 +1018,7 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       await service.syncFromBiostar('biostar-1');
 
-      const stored = studentRepo.byId('12100001');
-      expect(stored.Photo).toBe('/9j/ALREADYSTORED');
-      // ...and the card still lands, so the guard costs nothing.
-      expect(stored.Unique_ID).toBe('5551234');
+      expect(studentRepo.byId('12100001').Photo).toBe('/9j/ALREADYSTORED');
     });
 
     it('still replaces the stored photo when BioStar sends a different one', async () => {
