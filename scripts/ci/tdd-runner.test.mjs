@@ -19,11 +19,15 @@ function scratch(files) {
 
 // ---------------------------------------------------------------- error cases
 
-test("error: a test process killed by a signal before the timeout is a crash, not a timeout", (t) => {
-  const root = scratch({ "scripts/crash.test.mjs": 'process.kill(process.pid, "SIGKILL");\n' });
+test("error: a runner process killed by a signal before the timeout is a crash, not a timeout", (t) => {
+  // A stand-in jest binary that dies from SIGKILL at once, like an OOM kill or native crash.
+  const root = scratch({
+    "node_modules/jest/bin/jest.js": 'process.kill(process.pid, "SIGKILL");\n',
+    "apps/backend/src/a.spec.ts": "",
+  });
   t.after(() => rmSync(root, { recursive: true, force: true }));
   assert.throws(
-    () => runTestGroups(root, groups(["scripts/crash.test.mjs"]), 60_000),
+    () => runTestGroups(root, { jest: ["apps/backend/src/a.spec.ts"], vitest: [], scriptTests: [] }, 60_000),
     (err) => {
       assert.ok(err instanceof TestRunError, `expected TestRunError, got ${err?.constructor?.name}: ${err?.message}`);
       assert.ok(!(err instanceof TestRunTimeout));

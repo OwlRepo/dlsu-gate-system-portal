@@ -275,11 +275,32 @@ const isPathArg = (t) => !t.startsWith("-") && !/^\d*>/.test(t) && !t.startsWith
 const REDIRECT_RE = /(?<![0-9&<>])>{1,2}(?!&)[ \t]*/g;
 const TARGET_RE = /'([^']+)'|"([^"]+)"|([^\s'"<>&;|]+)/y;
 
+const INTERPRETERS = new Set(["node", "nodejs", "bun", "deno", "python", "python3", "ruby", "perl"]);
+const EVAL_FLAGS = new Set(["-e", "--eval", "-p", "--print", "-c", "eval"]);
+const SOURCE_PATH_RE = /[\w@.-]+(?:\/[\w@.-]+)*\.(?:tsx?|jsx?|mjs|cjs)\b/g;
+
+// An inline interpreter script (`node -e`, `python3 -c`, `python3 - <<EOF`) can write any
+// file, so every source-looking path it names is treated as a potential write target.
+function inlineScriptTargets(command) {
+  const first = command.trimStart().split(/\s+/);
+  const heredocInterpreter = INTERPRETERS.has(first[0]) && /<<-?\s*['"]?\w+/.test(command.split("\n")[0]);
+  if (heredocInterpreter) return [...command.matchAll(SOURCE_PATH_RE)].map((m) => m[0]);
+  const found = [];
+  for (const seg of segments(command)) {
+    const tokens = tokenize(seg.clean.trim());
+    if (INTERPRETERS.has(tokens[0]) && tokens.slice(1).some((t) => EVAL_FLAGS.has(t))) {
+      found.push(...[...seg.text.matchAll(SOURCE_PATH_RE)].map((m) => m[0]));
+    }
+  }
+  return found;
+}
+
 // Best-effort: the file paths a shell command would write. Reads (grep, cat,
 // sed -n) yield nothing. A heuristic, not a shell parser.
 export function findBashWriteTargets(command) {
   const targets = [];
   if (!command) return targets;
+  targets.push(...inlineScriptTargets(command));
   for (const seg of segments(command)) {
     if (!seg.mask.trim()) continue;
     let stripped = "";
@@ -321,7 +342,7 @@ export function findBashWriteTargets(command) {
       if (args.length >= 2) targets.push(args[args.length - 1]);
     }
   }
-  return targets.filter((t) => t && !t.startsWith("/dev/"));
+  return [...new Set(targets.filter((t) => t && !t.startsWith("/dev/")))];
 }
 
 // Kinds whose tests can prove a RED locally. backendE2e needs Postgres and the fake

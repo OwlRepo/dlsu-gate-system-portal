@@ -102,10 +102,10 @@ Enforcement:
 
 | Where | What | Bypass |
 |---|---|---|
-| Claude session | `.claude/settings.json` PreToolUse hook `scripts/hooks/tdd-red-guard.mjs` blocks Edit/Write (and Bash `sed -i`, `>`, `tee`, `cp`/`mv`) on guarded logic/UI until a valid RED marker exists for the current branch | `npm run tdd:red -- --waiver "<reason>"`, which then must appear in the PR as `TDD-Waiver:` |
+| Claude session | `.claude/settings.json` PreToolUse hook `scripts/hooks/tdd-red-guard.mjs` blocks Edit/Write (and Bash `sed -i`, `>`, `tee`, `cp`/`mv`, and inline interpreter scripts — `node -e`, `python3 -c`, a heredoc into an interpreter — that name a guarded path) on guarded logic/UI until a valid RED marker exists for the current branch | `npm run tdd:red -- --waiver "<reason>"`, which then must appear in the PR as `TDD-Waiver:` |
 | Before every PR | `npm run tdd:gate` (`scripts/ci/tdd-gate.mjs`, base `origin/main`): tests present for changed logic; a Vitest `*.test.tsx` for changed UI; a migration test for a changed migration; titles prefixed and ordered; **the branch's tests run against the merge-base code and must fail** (`TDD-Waiver: refactor ...` inverts this: they must pass there). Pass the PR body with `PR_BODY=...` or `--pr-body-file <path>` so waivers are read. | `TDD-Waiver:` / `UI-Test-Waiver:` / `Migration-Waiver:` lines in the PR body |
 
-Known limits: the Bash guard is a heuristic; a human editing by hand bypasses the local guard; `it.each(...)(...)` titles are not parsed; backend e2e and migration tests need a database, so the gate only checks they exist and their red run goes in the PR body. Existing test files are grandfathered: only titles a diff adds are checked. With no CI, the gate is only as strong as the handoff rule that requires running it — every waiver and the gate output go in the PR body where review can challenge them.
+Known limits: the Bash guard is a heuristic — a write whose target path is computed at runtime rather than written literally in the command is not detected; a human editing by hand bypasses the local guard; `it.each(...)(...)` titles are not parsed; backend e2e and migration tests need a database, so the gate only checks they exist and their red run goes in the PR body. Existing test files are grandfathered: only titles a diff adds are checked. With no CI, the gate is only as strong as the handoff rule that requires running it — every waiver and the gate output go in the PR body where review can challenge them.
 
 ## Mandatory Test Layers (every implementation plan)
 

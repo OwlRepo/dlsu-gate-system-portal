@@ -28,6 +28,7 @@ function binary(root, rel) {
 }
 
 function spawn(kind, args, cwd, timeoutMs) {
+  const started = Date.now();
   const res = spawnSync(process.execPath, args, {
     cwd,
     env: childEnv(),
@@ -36,8 +37,13 @@ function spawn(kind, args, cwd, timeoutMs) {
     killSignal: "SIGKILL",
     maxBuffer: 64 * 1024 * 1024,
   });
-  if (res.error?.code === "ETIMEDOUT" || (res.status === null && res.signal)) {
+  const elapsed = Date.now() - started;
+  if (res.error?.code === "ETIMEDOUT" || (res.signal && elapsed >= timeoutMs)) {
     throw new TestRunTimeout(`timeout: the ${kind} tests did not finish within ${timeoutMs} ms`);
+  }
+  // Killed early by something else (crash, OOM killer): a runner failure, not a timeout.
+  if (res.status === null && res.signal) {
+    throw new TestRunError(`the ${kind} test process was killed by ${res.signal} after ${elapsed} ms (a crash, not a timeout)`);
   }
   return res;
 }
