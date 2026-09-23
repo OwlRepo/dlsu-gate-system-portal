@@ -1450,276 +1450,32 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           ? parsedDirectoryMin
           : 50;
 
-      for await (const { batchRecords, batchNumber } of this.fetchBatches(
-        pool,
-        hasIsArchivedColumn,
-        batchSize,
-        timingsMs,
-      )) {
-        const normalizedRecords = batchRecords.map((record) =>
-          this.normalizeRecord(record),
-        );
-
-        // A name that scrubs away to nothing is one `normalizeRecord` had to
-        // leave unclean. Derived here rather than passed back, so the assembled
-        // record keeps exactly the shape the rest of this path expects.
-        for (const record of normalizedRecords) {
-          if (
-            record.Name &&
-            this.commonService.scrubNameTokens(record.Name) === null
-          ) {
-            placeholderNameKept.push(record.ID_Number);
-          }
+      // Changed rows wait here until an import's worth has built up. Pages are
+      // cut from the source, not from what changed: on 2026-09-23 (L3) 100
+      // scattered edits went out as about 100 one-row imports. Keyed by
+      // user_id so a duplicated id split across two pages still sends one line.
+      const importQueue = new Map<string, Record<string, string>>();
+      const pendingHashes = new Map<string, string>();
+      let importNumber = 0;
+      const takeImport = () => {
+        const rows = [...importQueue.values()].slice(0, importMaxRows);
+        for (const row of rows) importQueue.delete(row.user_id);
+        return rows;
+      };
+      const uploadImport = async (
+        formattedRecords: Record<string, string>[],
+        rowHashes: Map<string, string>,
+      ): Promise<void> => {
+        const batchNumber = ++importNumber;
+        // BioStar is still working on an earlier import this run. Sending more
+        // would stack imports on the server; these rows keep no hash and go on
+        // the next run. PostgreSQL is already up to date for them.
+        if (biostarUploadsHalted) {
+          rowsDeferredAfterHalt += formattedRecords.length;
+          return;
         }
-
-        const batchRecordsWithPhoto = normalizedRecords.map((record) => ({
-          ...record,
-          Photo: null,
-        }));
-
-        batchRecordsWithPhoto.forEach((r) =>
-          seenIdsFromSource.add(r.ID_Number),
-        );
-
-        const postgresWriteStart = Date.now();
-        const existingMap = new Map();
-        const idNumbers = batchRecordsWithPhoto.map((r) => r.ID_Number);
-        const chunkSize = 100;
-
-        for (let i = 0; i < idNumbers.length; i += chunkSize) {
-          const chunk = idNumbers.slice(i, i + chunkSize);
-          const existingStudentsChunk =
-            await this.commonService.executeWithRetry(
-              () =>
-                this.studentRepository.find({
-                  where: { ID_Number: In(chunk) },
-                }),
-              3,
-              `get existing students chunk ${Math.floor(i / chunkSize) + 1}`,
-            );
-          existingStudentsChunk.forEach((s) => existingMap.set(s.ID_Number, s));
-        }
-
-        const toCreate: Array<Partial<Student>> = [];
-        const toUpdate: Array<{
-          ID_Number: string;
-          changes: Partial<Student>;
-        }> = [];
-        for (const record of batchRecordsWithPhoto) {
-          const incomingUniqueId = this.normalizeUniqueIdValue(
-            record.Unique_ID,
-          );
-          const groupValue = this.commonService.normalizeGroupValue(
-            record.Group,
-          );
-          const data: Partial<Student> = {
-            ID_Number: record.ID_Number,
-            Name: record.Name,
-            Lived_Name: record.Lived_Name,
-            Remarks: record.Remarks,
-            Photo: record.Photo,
-            Campus_Entry: record.Campus_Entry,
-            isArchived: record.isArchived,
-            group: groupValue ?? null,
-          };
-          if (incomingUniqueId !== null) {
-            data.Unique_ID = incomingUniqueId;
-          }
-          const existing = existingMap.get(record.ID_Number);
-          // The activation window is decided by a state transition, not by
-          // comparing values, so it is resolved separately from
-          // buildChangedFields and merged in afterwards.
-          const incomingActive = this.commonService.isRecordActive(
-            record.Campus_Entry,
-            record.isArchived,
-          );
-          const activationWindow = this.commonService.resolveActivationWindow(
-            existing,
-            incomingActive,
-            runNow,
-          );
-          if (!existing) {
-            toCreate.push({ ...data, ...(activationWindow ?? {}) });
-          } else {
-            const changedFields = this.buildChangedFields(existing, {
-              Name: record.Name,
-              Lived_Name: record.Lived_Name,
-              Remarks: record.Remarks,
-              Photo: record.Photo,
-              Campus_Entry: record.Campus_Entry,
-              Unique_ID: incomingUniqueId ?? existing.Unique_ID ?? null,
-              isArchived: record.isArchived,
-              group: groupValue ?? null,
-            });
-            // A remark that went from a value to nothing needs a per-user PUT:
-            // an empty CSV cell appears to be ignored by BioStar's import
-            // (DLSU field report, never verified here), so the CSV
-            // alone can never clear it.
-            const remarkWasRemoved =
-              'Remarks' in changedFields &&
-              !changedFields.Remarks &&
-              !!existing.Remarks;
-            if (remarkWasRemoved) {
-              remarksClearedIds.push(record.ID_Number);
-            }
-            const merged = {
-              ...changedFields,
-              ...(activationWindow ?? {}),
-              // Persist the intent in the same write that nulls Remarks. The
-              // transition itself cannot be re-derived next run — `existing`
-              // will already be null — so without this a failed PUT could
-              // never be retried.
-              ...(remarkWasRemoved ? { remarks_clear_pending: true } : {}),
-            };
-            if (Object.keys(merged).length > 0) {
-              toUpdate.push({
-                ID_Number: record.ID_Number,
-                changes: merged,
-              });
-            }
-          }
-        }
-
-        if (toCreate.length) {
-          const insertChunkSize = 50;
-          for (let i = 0; i < toCreate.length; i += insertChunkSize) {
-            const insertChunk = toCreate.slice(i, i + insertChunkSize);
-            await this.commonService.executeWithRetry(
-              async () => {
-                try {
-                  await this.studentRepository.insert(insertChunk);
-                } catch (error) {
-                  if (
-                    error.message.includes(
-                      'duplicate key value violates unique constraint',
-                    )
-                  ) {
-                    this.logger.warn(
-                      `[Batch ${batchNumber}] Duplicate key error, updating existing records`,
-                    );
-                    for (const rec of insertChunk) {
-                      const existing = await this.studentRepository.findOne({
-                        where: { ID_Number: rec.ID_Number as string },
-                      });
-                      if (existing) {
-                        const changedFields = this.buildChangedFields(
-                          existing,
-                          {
-                            Name: rec.Name ?? null,
-                            Lived_Name: rec.Lived_Name ?? null,
-                            Remarks: rec.Remarks ?? null,
-                            Photo: rec.Photo ?? null,
-                            Campus_Entry: rec.Campus_Entry ?? null,
-                            Unique_ID:
-                              this.normalizeUniqueIdValue(rec.Unique_ID) ??
-                              existing.Unique_ID ??
-                              null,
-                            isArchived: rec.isArchived ?? false,
-                            group: rec.group ?? null,
-                          },
-                        );
-                        // A row that lands here was meant to be an insert, so
-                        // it carries a freshly-resolved window on `rec`. Re-run
-                        // the transition against the row that actually exists,
-                        // or this path would leave the window null forever.
-                        const activationWindow =
-                          this.commonService.resolveActivationWindow(
-                            existing,
-                            this.commonService.isRecordActive(
-                              rec.Campus_Entry ?? null,
-                              rec.isArchived ?? false,
-                            ),
-                            runNow,
-                          );
-                        const merged = {
-                          ...changedFields,
-                          ...(activationWindow ?? {}),
-                        };
-                        if (Object.keys(merged).length > 0) {
-                          await this.studentRepository.update(
-                            { ID_Number: rec.ID_Number as string },
-                            { ...merged, updatedAt: new Date() },
-                          );
-                        }
-                      } else {
-                        // Collateral damage. The chunk was rejected wholesale
-                        // because SOME row in it duplicated an existing ID —
-                        // but this row is genuinely new and did nothing wrong.
-                        // Without this it was silently dropped: it never
-                        // reached PostgreSQL, so it never reached BioStar, so
-                        // the person could not get through the gate. One
-                        // duplicated ID in the source view took out up to 50
-                        // students at a time, invisibly.
-                        //
-                        // Inserted individually. If the duplicate is WITHIN
-                        // this chunk, the first pass inserts and the second
-                        // finds it existing and updates — which de-duplicates
-                        // the source view for free.
-                        try {
-                          await this.studentRepository.insert(rec);
-                        } catch (insertError) {
-                          this.logger.error(
-                            `[Batch ${batchNumber}] Could not insert ${rec.ID_Number}: ${
-                              (insertError as Error)?.message
-                            }`,
-                          );
-                          failedRecordsAll.push({
-                            batchNumber,
-                            error: 'Insert failed after duplicate-key fallback',
-                            details: String(rec.ID_Number),
-                          });
-                        }
-                      }
-                    }
-                  } else {
-                    throw error;
-                  }
-                }
-              },
-              3,
-              `insert chunk ${Math.floor(i / insertChunkSize) + 1}`,
-            );
-          }
-        }
-        if (toUpdate.length) {
-          const updateChunkSize = 50;
-          for (let i = 0; i < toUpdate.length; i += updateChunkSize) {
-            const updateChunk = toUpdate.slice(i, i + updateChunkSize);
-            await this.commonService.executeWithRetry(
-              async () => {
-                for (const record of updateChunk) {
-                  await this.studentRepository.update(
-                    { ID_Number: record.ID_Number },
-                    {
-                      ...record.changes,
-                      updatedAt: new Date(),
-                    },
-                  );
-                }
-              },
-              3,
-              `update chunk ${Math.floor(i / updateChunkSize) + 1}`,
-            );
-          }
-        }
-        rowsChanged += toCreate.length + toUpdate.length;
-        rowsUnchanged +=
-          batchRecordsWithPhoto.length - (toCreate.length + toUpdate.length);
-
-        const refreshedStudents = await this.commonService.executeWithRetry(
-          () =>
-            this.studentRepository.find({
-              where: { ID_Number: In(idNumbers) },
-            }),
-          3,
-          `refresh students for CSN batch ${batchNumber}`,
-        );
-        refreshedStudents.forEach((s) => existingMap.set(s.ID_Number, s));
-        this.commonService.addElapsed(
-          timingsMs,
-          'postgresWrite',
-          postgresWriteStart,
-        );
+        csvRowsEmitted += formattedRecords.length;
+        csvEmittedIds.push(...formattedRecords.map((r) => r.user_id));
 
         const csvFilePath = path.join(
           tempDir,
@@ -1729,335 +1485,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           path: csvFilePath,
           header: dasmaHeaders,
         });
-        const skippedRecords = [];
-
-        // Only a fallback now. Both windows are anchored to what is stored on
-        // the row — activation for the enabled window, deactivation for the
-        // disabled one — so an unchanged person exports identical dates every
-        // run. See the per-row derivation below.
-        const currentDate = dayjs().tz('Asia/Manila').startOf('day');
-
-        const activeRecordsForBiostar = batchRecordsWithPhoto.filter(
-          (r) => r.isArchived !== true,
-        );
-
-        const csnConcurrency = Math.max(
-          1,
-          parseInt(
-            this.configService.get('BIOSTAR_DETAIL_CONCURRENCY') || '8',
-            10,
-          ) || 8,
-        );
-        const csnStart = Date.now();
-        const csnRateLimitTracker = { count: 0 };
-
-        type DasmaCsvRowInput = {
-          userId: string;
-          rowBase: Record<string, string>;
-        };
-
-        const validatedRows: Array<DasmaCsvRowInput | null> =
-          activeRecordsForBiostar.map((record) => {
-            // Preserve ID_Number as-is for identity; no hex conversion or truncation
-            const userId = (record.ID_Number?.toString() || '').trim();
-            const rendered = this.commonService.renderBiostarName(record.Name);
-            const name = rendered.value;
-            if (rendered.truncated) nameTruncatedForBiostar.add(userId);
-            // Flattened, not quoted-and-preserved.
-            //
-            // Our writer quotes an embedded newline correctly per RFC 4180,
-            // but BioStar's importer does not read it that way: on 2026-09-10 a
-            // live import rejected such a row with `User ID Type Mismatch.`,
-            // having treated the continuation line as a fresh record whose
-            // first column was the tail of the remark. One bad remark silently
-            // costs that person their row in the batch. `Remarks` is free text
-            // a clerk types, so a pasted newline is entirely plausible.
-            const remarks = this.flattenCsvCell(record.Remarks);
-            const validationErrors = [];
-            if (!userId) {
-              validationErrors.push('Empty ID');
-            }
-            if (!name) {
-              validationErrors.push('Empty name');
-            }
-            if (validationErrors.length > 0) {
-              skippedRecords.push({
-                ID_Number: record.ID_Number,
-                userId,
-                name,
-                livedName: '',
-                remarks,
-                length: userId.length,
-                reasons: validationErrors,
-                timestamp: new Date().toISOString(),
-              });
-              return null;
-            }
-
-            const userTitle =
-              (record.Group && String(record.Group).trim()) || 'Student';
-            const isDisabled = !this.commonService.isRecordActive(
-              record.Campus_Entry,
-              record.isArchived,
-            );
-
-            // THE FIX. The enabled window now comes from what was stored at
-            // activation instead of being re-derived from today, so a record
-            // that has not changed exports the same dates on every run.
-            // `existingMap` was refreshed from the database a few lines above,
-            // so it already holds whatever this run just wrote.
-            const stored = existingMap.get(userId);
-            const storedStart = stored?.date_activated ?? null;
-            const storedExpiry = stored?.expiry_datetime ?? null;
-
-            if (!isDisabled && (!storedStart || !storedExpiry)) {
-              // Never ship a gate device an empty expiry. Fall back to the old
-              // behaviour and name the record so the gap is visible rather than
-              // silent — this list must be empty on the second run.
-              expiryFallbackUsed.push(userId);
-            }
-
-            // The disabled window is anchored to the stored deactivation date,
-            // not to today. It still has to read as expired — an expired window
-            // is how this system denies someone at the gate — and a fixed date
-            // in the past does that just as well as a moving one. Deriving it
-            // from dayjs() every run made every disabled person's row change
-            // daily, which would re-export the entire disabled population every
-            // single day and defeat the whole point of the comparison below.
-            const disabledAnchor = stored?.date_deactivated
-              ? dayjs(stored.date_deactivated).tz('Asia/Manila').startOf('day')
-              : currentDate;
-            if (isDisabled && !stored?.date_deactivated) {
-              // Same contract as expiryFallbackUsed on the enabled branch:
-              // name the row rather than let a daily-changing window pass
-              // silently.
-              disabledAnchorFallbackUsed.push(userId);
-            }
-
-            // The enabled window is floored to the activation DAY and starts a
-            // day earlier, which is what the legacy build always sent.
-            //
-            // Anchoring to the stored date is what stopped the drift; flooring
-            // is what keeps the 24-hour head start that absorbs any
-            // disagreement between this server's clock and the devices' about
-            // what timezone a bare `YYYY-MM-DD HH:mm:ss.SSS` denotes. Exporting
-            // the activation INSTANT left zero margin — live BioStar held
-            // `2026-09-10T16:28:31Z` for 27 people after one run. Both values
-            // still derive only from `date_activated`, so an unchanged person
-            // still exports identical bytes every run.
-            const activationDay = storedStart
-              ? dayjs(storedStart).tz('Asia/Manila').startOf('day')
-              : null;
-            const startDatetime = isDisabled
-              ? disabledAnchor
-                  .subtract(2, 'day')
-                  .format(BIOSTAR_DATETIME_FORMAT)
-              : (activationDay
-                  ?.subtract(1, 'day')
-                  .format(BIOSTAR_DATETIME_FORMAT) ??
-                currentDate.subtract(1, 'day').format(BIOSTAR_DATETIME_FORMAT));
-            const expiryDatetime = isDisabled
-              ? disabledAnchor
-                  .subtract(1, 'day')
-                  .format(BIOSTAR_DATETIME_FORMAT)
-              : (activationDay
-                  ?.add(ACTIVATION_VALIDITY_YEARS, 'year')
-                  .format(BIOSTAR_DATETIME_FORMAT) ??
-                currentDate
-                  .add(ACTIVATION_VALIDITY_YEARS, 'year')
-                  .format(BIOSTAR_DATETIME_FORMAT));
-
-            return {
-              userId,
-              rowBase: {
-                user_id: userId,
-                name: name,
-                department: 'DLSU',
-                user_title: userTitle,
-                user_group: 'All Users',
-                remarks: remarks,
-                start_datetime: startDatetime,
-                expiry_datetime: expiryDatetime,
-                original_campus_entry: String(record.Campus_Entry ?? ''),
-              },
-            };
-          });
-
-        // A row whose content has not changed is not sent, and a row that is
-        // not sent cannot blank anyone's card — so the card is looked up only
-        // for rows about to go out without one stored. Rendering with the
-        // stored card first is what makes that ordering possible: an unchanged
-        // person renders exactly what was last delivered.
-        const withStoredCsn = validatedRows
-          .filter((row): row is DasmaCsvRowInput => row !== null)
-          .map(
-            ({
-              userId,
-              rowBase,
-            }): {
-              userId: string;
-              row: Record<string, string>;
-            } => ({
-              userId,
-              row: {
-                ...rowBase,
-                csn:
-                  this.normalizeUniqueIdValue(
-                    existingMap.get(userId)?.Unique_ID,
-                  ) ?? '',
-              },
-            }),
-          );
-        const needsCard = withStoredCsn.filter(
-          ({ userId, row }) =>
-            row.csn === '' &&
-            existingMap.get(userId)?.biostar_row_hash !==
-              this.hashCsvRow(row, dasmaHeaders),
-        );
-        const useDirectory = needsCard.length > cardDirectoryMinRows;
-        if (useDirectory && cardDirectory === undefined) {
-          cardDirectory = await this.loadCardDirectory(pushSession);
-        }
-
-        /** Cards learned from BioStar this batch, to write back once. */
-        const csnToPersist: { userId: string; csn: string }[] = [];
-        const cardAnswers = new Map<
-          string,
-          { csn: string; unresolved: boolean }
-        >();
-        await this.commonService.runWithConcurrency(
-          needsCard,
-          csnConcurrency,
-          async ({ userId }) => {
-            const { csn, unresolved, fetched, lookedUp } =
-              await this.resolveDasmaCsnForCsvRow(
-                userId,
-                existingMap.get(userId),
-                pushSession,
-                csnRateLimitTracker,
-                useDirectory ? (cardDirectory ?? null) : null,
-              );
-            if (lookedUp) csnApiLookups++;
-            if (fetched) {
-              csnToPersist.push({ userId, csn });
-            }
-            cardAnswers.set(userId, { csn, unresolved });
-          },
-        );
-        const resolvedRows = withStoredCsn.map(({ userId, row }) => {
-          const answer = cardAnswers.get(userId);
-          return answer
-            ? {
-                row: { ...row, csn: answer.csn },
-                unresolved: answer.unresolved,
-              }
-            : { row, unresolved: false };
-        });
-
-        // Write back every card BioStar just told us about. Without this the
-        // same lookup repeats on every run for every card-less student, and a
-        // momentary BioStar outage turns their `csn` cell empty — which would
-        // both churn the export and put their card at risk.
-        if (csnToPersist.length) {
-          await this.commonService.executeWithRetry(
-            async () => {
-              for (const { userId, csn } of csnToPersist) {
-                await this.studentRepository.update(
-                  { ID_Number: userId },
-                  { Unique_ID: csn, updatedAt: new Date() },
-                );
-                const cached = existingMap.get(userId);
-                if (cached) {
-                  cached.Unique_ID = csn;
-                }
-              }
-            },
-            3,
-            `persist CSNs batch ${batchNumber}`,
-          );
-        }
-        this.commonService.addElapsed(timingsMs, 'csnResolve', csnStart);
-
-        const csnUnresolvedIds = resolvedRows
-          .filter((r) => r.unresolved)
-          .map((r) => r.row.user_id);
-        if (csnUnresolvedIds.length) {
-          this.logger.warn(
-            `[Batch ${batchNumber}] Skipping ${csnUnresolvedIds.length} row(s) whose card BioStar could not confirm; ` +
-              `exporting a blank csn under import_option 2 could clear a real card.`,
-          );
-          csnUnresolvedAll.push(...csnUnresolvedIds);
-        }
-
-        const candidateRecords: Record<string, string>[] = resolvedRows
-          .filter((r) => !r.unresolved)
-          .map((r) => r.row);
-        csnPersistedFromBiostar += csnToPersist.length;
-
-        // ------------------------------------------------------------------
-        // Send BioStar only what actually changed.
-        //
-        // `import_option: 2` is per-record Overwrite, so every row in this file
-        // marks that user modified in BioStar, and BioStar's Automatic User
-        // Synchronization then re-transfers them to every connected device.
-        // Exporting the whole roster every run is therefore not merely wasteful
-        // — it is what re-enrolled thousands of users on the gates.
-        //
-        // The comparison is on the rendered row, not on the Postgres columns,
-        // because a row can change without any column changing: a card newly
-        // resolved from BioStar, or a first activation window. Hashing what we
-        // are about to send is the only comparison that cannot miss those.
-        // ------------------------------------------------------------------
-        // One CSV line per user_id, keeping the LAST occurrence.
-        //
-        // A duplicated id in the source renders two different lines under the
-        // same key, but only one hash can be stored against the one student
-        // row — so whichever variant loses that race mismatches on every later
-        // run and that person is re-imported, and re-transferred to every
-        // device, forever. Keeping the last one matches what the PostgreSQL
-        // upsert keeps, so the exported row and the roster row never disagree
-        // about which variant is canonical.
-        const dedupedByUserId = new Map<string, Record<string, string>>();
-        for (const row of candidateRecords)
-          dedupedByUserId.set(row.user_id, row);
-        const duplicateRowsDropped =
-          candidateRecords.length - dedupedByUserId.size;
-        if (duplicateRowsDropped > 0) {
-          csvDuplicateRowsDropped += duplicateRowsDropped;
-          this.logger.warn(
-            `[Batch ${batchNumber}] ${duplicateRowsDropped} duplicate source id(s) collapsed to one CSV row each`,
-          );
-        }
-        const uniqueCandidates = [...dedupedByUserId.values()];
-
-        const rowHashes = new Map<string, string>();
-        const formattedRecords = uniqueCandidates.filter((row) => {
-          const hash = this.hashCsvRow(row, dasmaHeaders);
-          rowHashes.set(row.user_id, hash);
-          const unchanged =
-            existingMap.get(row.user_id)?.biostar_row_hash === hash;
-          if (unchanged) csvRowsSuppressed++;
-          return !unchanged;
-        });
-        // BioStar is still working on an earlier import this run. Sending more
-        // would stack imports on the server; these rows keep no hash and go on
-        // the next run. PostgreSQL is already up to date for them.
-        if (biostarUploadsHalted && formattedRecords.length > 0) {
-          rowsDeferredAfterHalt += formattedRecords.length;
-          continue;
-        }
-        csvRowsEmitted += formattedRecords.length;
-        csvEmittedIds.push(...formattedRecords.map((r) => r.user_id));
-
-        // Nothing to say. Writing a header-only CSV and importing it is still a
-        // full overwrite request, so the upload has to be skipped outright —
-        // the file-size check further down cannot catch this, because csv-writer
-        // always emits the header line and the file is therefore never empty.
-        if (formattedRecords.length === 0) {
-          batchesSkippedNoChanges++;
-          continue;
-        }
-
         await csvWriter.writeRecords(formattedRecords);
 
         let csvFileReady = false;
@@ -2100,7 +1527,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           this.logger.log(
             `[Batch ${batchNumber}] Failed records written to ${failedFile}`,
           );
-          continue;
+          return;
         }
 
         const uploadStart = Date.now();
@@ -2434,6 +1861,628 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
         this.commonService.addElapsed(timingsMs, 'csvUpload', uploadStart);
 
+        if (failedRecordsAll.length > 0) {
+          const failedFile = path.join(
+            this.logDir,
+            `failed_batch_${jobName}_${batchNumber}_${Date.now()}.json`,
+          );
+          fs.writeFileSync(
+            failedFile,
+            JSON.stringify(failedRecordsAll, null, 2),
+          );
+          this.logger.log(
+            `[Batch ${batchNumber}] Failed records written to ${failedFile}`,
+          );
+        }
+
+        failedRecordsAll.length = 0;
+        totalProcessed += formattedRecords.length;
+        totalActiveExported += formattedRecords.length;
+        void (totalEnabled += formattedRecords.filter((r) => {
+          const campusEntry = r.original_campus_entry
+            ?.toString()
+            ?.toUpperCase();
+          return campusEntry === 'Y';
+        }).length);
+        void (totalDisabled += formattedRecords.filter((r) => {
+          const campusEntry = r.original_campus_entry
+            ?.toString()
+            ?.toUpperCase();
+          return campusEntry === 'N';
+        }).length);
+      };
+
+      for await (const { batchRecords, batchNumber } of this.fetchBatches(
+        pool,
+        hasIsArchivedColumn,
+        batchSize,
+        timingsMs,
+      )) {
+        const normalizedRecords = batchRecords.map((record) =>
+          this.normalizeRecord(record),
+        );
+
+        // A name that scrubs away to nothing is one `normalizeRecord` had to
+        // leave unclean. Derived here rather than passed back, so the assembled
+        // record keeps exactly the shape the rest of this path expects.
+        for (const record of normalizedRecords) {
+          if (
+            record.Name &&
+            this.commonService.scrubNameTokens(record.Name) === null
+          ) {
+            placeholderNameKept.push(record.ID_Number);
+          }
+        }
+
+        const batchRecordsWithPhoto = normalizedRecords.map((record) => ({
+          ...record,
+          Photo: null,
+        }));
+
+        batchRecordsWithPhoto.forEach((r) =>
+          seenIdsFromSource.add(r.ID_Number),
+        );
+
+        const postgresWriteStart = Date.now();
+        const existingMap = new Map();
+        const idNumbers = batchRecordsWithPhoto.map((r) => r.ID_Number);
+        const chunkSize = 100;
+
+        for (let i = 0; i < idNumbers.length; i += chunkSize) {
+          const chunk = idNumbers.slice(i, i + chunkSize);
+          const existingStudentsChunk =
+            await this.commonService.executeWithRetry(
+              () =>
+                this.studentRepository.find({
+                  where: { ID_Number: In(chunk) },
+                }),
+              3,
+              `get existing students chunk ${Math.floor(i / chunkSize) + 1}`,
+            );
+          existingStudentsChunk.forEach((s) => existingMap.set(s.ID_Number, s));
+        }
+
+        const toCreate: Array<Partial<Student>> = [];
+        const toUpdate: Array<{
+          ID_Number: string;
+          changes: Partial<Student>;
+        }> = [];
+        for (const record of batchRecordsWithPhoto) {
+          const incomingUniqueId = this.normalizeUniqueIdValue(
+            record.Unique_ID,
+          );
+          const groupValue = this.commonService.normalizeGroupValue(
+            record.Group,
+          );
+          const data: Partial<Student> = {
+            ID_Number: record.ID_Number,
+            Name: record.Name,
+            Lived_Name: record.Lived_Name,
+            Remarks: record.Remarks,
+            Photo: record.Photo,
+            Campus_Entry: record.Campus_Entry,
+            isArchived: record.isArchived,
+            group: groupValue ?? null,
+          };
+          if (incomingUniqueId !== null) {
+            data.Unique_ID = incomingUniqueId;
+          }
+          const existing = existingMap.get(record.ID_Number);
+          // The activation window is decided by a state transition, not by
+          // comparing values, so it is resolved separately from
+          // buildChangedFields and merged in afterwards.
+          const incomingActive = this.commonService.isRecordActive(
+            record.Campus_Entry,
+            record.isArchived,
+          );
+          const activationWindow = this.commonService.resolveActivationWindow(
+            existing,
+            incomingActive,
+            runNow,
+          );
+          if (!existing) {
+            toCreate.push({ ...data, ...(activationWindow ?? {}) });
+          } else {
+            const changedFields = this.buildChangedFields(existing, {
+              Name: record.Name,
+              Lived_Name: record.Lived_Name,
+              Remarks: record.Remarks,
+              Photo: record.Photo,
+              Campus_Entry: record.Campus_Entry,
+              Unique_ID: incomingUniqueId ?? existing.Unique_ID ?? null,
+              isArchived: record.isArchived,
+              group: groupValue ?? null,
+            });
+            // A remark that went from a value to nothing needs a per-user PUT:
+            // an empty CSV cell appears to be ignored by BioStar's import
+            // (DLSU field report, never verified here), so the CSV
+            // alone can never clear it.
+            const remarkWasRemoved =
+              'Remarks' in changedFields &&
+              !changedFields.Remarks &&
+              !!existing.Remarks;
+            if (remarkWasRemoved) {
+              remarksClearedIds.push(record.ID_Number);
+            }
+            const merged = {
+              ...changedFields,
+              ...(activationWindow ?? {}),
+              // Persist the intent in the same write that nulls Remarks. The
+              // transition itself cannot be re-derived next run — `existing`
+              // will already be null — so without this a failed PUT could
+              // never be retried.
+              ...(remarkWasRemoved ? { remarks_clear_pending: true } : {}),
+            };
+            if (Object.keys(merged).length > 0) {
+              toUpdate.push({
+                ID_Number: record.ID_Number,
+                changes: merged,
+              });
+            }
+          }
+        }
+
+        if (toCreate.length) {
+          const insertChunkSize = 50;
+          for (let i = 0; i < toCreate.length; i += insertChunkSize) {
+            const insertChunk = toCreate.slice(i, i + insertChunkSize);
+            await this.commonService.executeWithRetry(
+              async () => {
+                try {
+                  await this.studentRepository.insert(insertChunk);
+                } catch (error) {
+                  if (
+                    error.message.includes(
+                      'duplicate key value violates unique constraint',
+                    )
+                  ) {
+                    this.logger.warn(
+                      `[Batch ${batchNumber}] Duplicate key error, updating existing records`,
+                    );
+                    for (const rec of insertChunk) {
+                      const existing = await this.studentRepository.findOne({
+                        where: { ID_Number: rec.ID_Number as string },
+                      });
+                      if (existing) {
+                        const changedFields = this.buildChangedFields(
+                          existing,
+                          {
+                            Name: rec.Name ?? null,
+                            Lived_Name: rec.Lived_Name ?? null,
+                            Remarks: rec.Remarks ?? null,
+                            Photo: rec.Photo ?? null,
+                            Campus_Entry: rec.Campus_Entry ?? null,
+                            Unique_ID:
+                              this.normalizeUniqueIdValue(rec.Unique_ID) ??
+                              existing.Unique_ID ??
+                              null,
+                            isArchived: rec.isArchived ?? false,
+                            group: rec.group ?? null,
+                          },
+                        );
+                        // A row that lands here was meant to be an insert, so
+                        // it carries a freshly-resolved window on `rec`. Re-run
+                        // the transition against the row that actually exists,
+                        // or this path would leave the window null forever.
+                        const activationWindow =
+                          this.commonService.resolveActivationWindow(
+                            existing,
+                            this.commonService.isRecordActive(
+                              rec.Campus_Entry ?? null,
+                              rec.isArchived ?? false,
+                            ),
+                            runNow,
+                          );
+                        const merged = {
+                          ...changedFields,
+                          ...(activationWindow ?? {}),
+                        };
+                        if (Object.keys(merged).length > 0) {
+                          await this.studentRepository.update(
+                            { ID_Number: rec.ID_Number as string },
+                            { ...merged, updatedAt: new Date() },
+                          );
+                        }
+                      } else {
+                        // Collateral damage. The chunk was rejected wholesale
+                        // because SOME row in it duplicated an existing ID —
+                        // but this row is genuinely new and did nothing wrong.
+                        // Without this it was silently dropped: it never
+                        // reached PostgreSQL, so it never reached BioStar, so
+                        // the person could not get through the gate. One
+                        // duplicated ID in the source view took out up to 50
+                        // students at a time, invisibly.
+                        //
+                        // Inserted individually. If the duplicate is WITHIN
+                        // this chunk, the first pass inserts and the second
+                        // finds it existing and updates — which de-duplicates
+                        // the source view for free.
+                        try {
+                          await this.studentRepository.insert(rec);
+                        } catch (insertError) {
+                          this.logger.error(
+                            `[Batch ${batchNumber}] Could not insert ${rec.ID_Number}: ${
+                              (insertError as Error)?.message
+                            }`,
+                          );
+                          failedRecordsAll.push({
+                            batchNumber,
+                            error: 'Insert failed after duplicate-key fallback',
+                            details: String(rec.ID_Number),
+                          });
+                        }
+                      }
+                    }
+                  } else {
+                    throw error;
+                  }
+                }
+              },
+              3,
+              `insert chunk ${Math.floor(i / insertChunkSize) + 1}`,
+            );
+          }
+        }
+        if (toUpdate.length) {
+          const updateChunkSize = 50;
+          for (let i = 0; i < toUpdate.length; i += updateChunkSize) {
+            const updateChunk = toUpdate.slice(i, i + updateChunkSize);
+            await this.commonService.executeWithRetry(
+              async () => {
+                for (const record of updateChunk) {
+                  await this.studentRepository.update(
+                    { ID_Number: record.ID_Number },
+                    {
+                      ...record.changes,
+                      updatedAt: new Date(),
+                    },
+                  );
+                }
+              },
+              3,
+              `update chunk ${Math.floor(i / updateChunkSize) + 1}`,
+            );
+          }
+        }
+        rowsChanged += toCreate.length + toUpdate.length;
+        rowsUnchanged +=
+          batchRecordsWithPhoto.length - (toCreate.length + toUpdate.length);
+
+        const refreshedStudents = await this.commonService.executeWithRetry(
+          () =>
+            this.studentRepository.find({
+              where: { ID_Number: In(idNumbers) },
+            }),
+          3,
+          `refresh students for CSN batch ${batchNumber}`,
+        );
+        refreshedStudents.forEach((s) => existingMap.set(s.ID_Number, s));
+        this.commonService.addElapsed(
+          timingsMs,
+          'postgresWrite',
+          postgresWriteStart,
+        );
+
+        const skippedRecords = [];
+
+        // Only a fallback now. Both windows are anchored to what is stored on
+        // the row — activation for the enabled window, deactivation for the
+        // disabled one — so an unchanged person exports identical dates every
+        // run. See the per-row derivation below.
+        const currentDate = dayjs().tz('Asia/Manila').startOf('day');
+
+        const activeRecordsForBiostar = batchRecordsWithPhoto.filter(
+          (r) => r.isArchived !== true,
+        );
+
+        const csnConcurrency = Math.max(
+          1,
+          parseInt(
+            this.configService.get('BIOSTAR_DETAIL_CONCURRENCY') || '8',
+            10,
+          ) || 8,
+        );
+        const csnStart = Date.now();
+        const csnRateLimitTracker = { count: 0 };
+
+        type DasmaCsvRowInput = {
+          userId: string;
+          rowBase: Record<string, string>;
+        };
+
+        const validatedRows: Array<DasmaCsvRowInput | null> =
+          activeRecordsForBiostar.map((record) => {
+            // Preserve ID_Number as-is for identity; no hex conversion or truncation
+            const userId = (record.ID_Number?.toString() || '').trim();
+            const rendered = this.commonService.renderBiostarName(record.Name);
+            const name = rendered.value;
+            if (rendered.truncated) nameTruncatedForBiostar.add(userId);
+            // Flattened, not quoted-and-preserved.
+            //
+            // Our writer quotes an embedded newline correctly per RFC 4180,
+            // but BioStar's importer does not read it that way: on 2026-09-10 a
+            // live import rejected such a row with `User ID Type Mismatch.`,
+            // having treated the continuation line as a fresh record whose
+            // first column was the tail of the remark. One bad remark silently
+            // costs that person their row in the batch. `Remarks` is free text
+            // a clerk types, so a pasted newline is entirely plausible.
+            const remarks = this.flattenCsvCell(record.Remarks);
+            const validationErrors = [];
+            if (!userId) {
+              validationErrors.push('Empty ID');
+            }
+            if (!name) {
+              validationErrors.push('Empty name');
+            }
+            if (validationErrors.length > 0) {
+              skippedRecords.push({
+                ID_Number: record.ID_Number,
+                userId,
+                name,
+                livedName: '',
+                remarks,
+                length: userId.length,
+                reasons: validationErrors,
+                timestamp: new Date().toISOString(),
+              });
+              return null;
+            }
+
+            const userTitle =
+              (record.Group && String(record.Group).trim()) || 'Student';
+            const isDisabled = !this.commonService.isRecordActive(
+              record.Campus_Entry,
+              record.isArchived,
+            );
+
+            // THE FIX. The enabled window now comes from what was stored at
+            // activation instead of being re-derived from today, so a record
+            // that has not changed exports the same dates on every run.
+            // `existingMap` was refreshed from the database a few lines above,
+            // so it already holds whatever this run just wrote.
+            const stored = existingMap.get(userId);
+            const storedStart = stored?.date_activated ?? null;
+            const storedExpiry = stored?.expiry_datetime ?? null;
+
+            if (!isDisabled && (!storedStart || !storedExpiry)) {
+              // Never ship a gate device an empty expiry. Fall back to the old
+              // behaviour and name the record so the gap is visible rather than
+              // silent — this list must be empty on the second run.
+              expiryFallbackUsed.push(userId);
+            }
+
+            // The disabled window is anchored to the stored deactivation date,
+            // not to today. It still has to read as expired — an expired window
+            // is how this system denies someone at the gate — and a fixed date
+            // in the past does that just as well as a moving one. Deriving it
+            // from dayjs() every run made every disabled person's row change
+            // daily, which would re-export the entire disabled population every
+            // single day and defeat the whole point of the comparison below.
+            const disabledAnchor = stored?.date_deactivated
+              ? dayjs(stored.date_deactivated).tz('Asia/Manila').startOf('day')
+              : currentDate;
+            if (isDisabled && !stored?.date_deactivated) {
+              // Same contract as expiryFallbackUsed on the enabled branch:
+              // name the row rather than let a daily-changing window pass
+              // silently.
+              disabledAnchorFallbackUsed.push(userId);
+            }
+
+            // The enabled window is floored to the activation DAY and starts a
+            // day earlier, which is what the legacy build always sent.
+            //
+            // Anchoring to the stored date is what stopped the drift; flooring
+            // is what keeps the 24-hour head start that absorbs any
+            // disagreement between this server's clock and the devices' about
+            // what timezone a bare `YYYY-MM-DD HH:mm:ss.SSS` denotes. Exporting
+            // the activation INSTANT left zero margin — live BioStar held
+            // `2026-09-10T16:28:31Z` for 27 people after one run. Both values
+            // still derive only from `date_activated`, so an unchanged person
+            // still exports identical bytes every run.
+            const activationDay = storedStart
+              ? dayjs(storedStart).tz('Asia/Manila').startOf('day')
+              : null;
+            const startDatetime = isDisabled
+              ? disabledAnchor
+                  .subtract(2, 'day')
+                  .format(BIOSTAR_DATETIME_FORMAT)
+              : (activationDay
+                  ?.subtract(1, 'day')
+                  .format(BIOSTAR_DATETIME_FORMAT) ??
+                currentDate.subtract(1, 'day').format(BIOSTAR_DATETIME_FORMAT));
+            const expiryDatetime = isDisabled
+              ? disabledAnchor
+                  .subtract(1, 'day')
+                  .format(BIOSTAR_DATETIME_FORMAT)
+              : (activationDay
+                  ?.add(ACTIVATION_VALIDITY_YEARS, 'year')
+                  .format(BIOSTAR_DATETIME_FORMAT) ??
+                currentDate
+                  .add(ACTIVATION_VALIDITY_YEARS, 'year')
+                  .format(BIOSTAR_DATETIME_FORMAT));
+
+            return {
+              userId,
+              rowBase: {
+                user_id: userId,
+                name: name,
+                department: 'DLSU',
+                user_title: userTitle,
+                user_group: 'All Users',
+                remarks: remarks,
+                start_datetime: startDatetime,
+                expiry_datetime: expiryDatetime,
+                original_campus_entry: String(record.Campus_Entry ?? ''),
+              },
+            };
+          });
+
+        // A row whose content has not changed is not sent, and a row that is
+        // not sent cannot blank anyone's card — so the card is looked up only
+        // for rows about to go out without one stored. Rendering with the
+        // stored card first is what makes that ordering possible: an unchanged
+        // person renders exactly what was last delivered.
+        const withStoredCsn = validatedRows
+          .filter((row): row is DasmaCsvRowInput => row !== null)
+          .map(
+            ({
+              userId,
+              rowBase,
+            }): {
+              userId: string;
+              row: Record<string, string>;
+            } => ({
+              userId,
+              row: {
+                ...rowBase,
+                csn:
+                  this.normalizeUniqueIdValue(
+                    existingMap.get(userId)?.Unique_ID,
+                  ) ?? '',
+              },
+            }),
+          );
+        const needsCard = withStoredCsn.filter(
+          ({ userId, row }) =>
+            row.csn === '' &&
+            existingMap.get(userId)?.biostar_row_hash !==
+              this.hashCsvRow(row, dasmaHeaders),
+        );
+        const useDirectory = needsCard.length > cardDirectoryMinRows;
+        if (useDirectory && cardDirectory === undefined) {
+          cardDirectory = await this.loadCardDirectory(pushSession);
+        }
+
+        /** Cards learned from BioStar this batch, to write back once. */
+        const csnToPersist: { userId: string; csn: string }[] = [];
+        const cardAnswers = new Map<
+          string,
+          { csn: string; unresolved: boolean }
+        >();
+        await this.commonService.runWithConcurrency(
+          needsCard,
+          csnConcurrency,
+          async ({ userId }) => {
+            const { csn, unresolved, fetched, lookedUp } =
+              await this.resolveDasmaCsnForCsvRow(
+                userId,
+                existingMap.get(userId),
+                pushSession,
+                csnRateLimitTracker,
+                useDirectory ? (cardDirectory ?? null) : null,
+              );
+            if (lookedUp) csnApiLookups++;
+            if (fetched) {
+              csnToPersist.push({ userId, csn });
+            }
+            cardAnswers.set(userId, { csn, unresolved });
+          },
+        );
+        const resolvedRows = withStoredCsn.map(({ userId, row }) => {
+          const answer = cardAnswers.get(userId);
+          return answer
+            ? {
+                row: { ...row, csn: answer.csn },
+                unresolved: answer.unresolved,
+              }
+            : { row, unresolved: false };
+        });
+
+        // Write back every card BioStar just told us about. Without this the
+        // same lookup repeats on every run for every card-less student, and a
+        // momentary BioStar outage turns their `csn` cell empty — which would
+        // both churn the export and put their card at risk.
+        if (csnToPersist.length) {
+          await this.commonService.executeWithRetry(
+            async () => {
+              for (const { userId, csn } of csnToPersist) {
+                await this.studentRepository.update(
+                  { ID_Number: userId },
+                  { Unique_ID: csn, updatedAt: new Date() },
+                );
+                const cached = existingMap.get(userId);
+                if (cached) {
+                  cached.Unique_ID = csn;
+                }
+              }
+            },
+            3,
+            `persist CSNs batch ${batchNumber}`,
+          );
+        }
+        this.commonService.addElapsed(timingsMs, 'csnResolve', csnStart);
+
+        const csnUnresolvedIds = resolvedRows
+          .filter((r) => r.unresolved)
+          .map((r) => r.row.user_id);
+        if (csnUnresolvedIds.length) {
+          this.logger.warn(
+            `[Batch ${batchNumber}] Skipping ${csnUnresolvedIds.length} row(s) whose card BioStar could not confirm; ` +
+              `exporting a blank csn under import_option 2 could clear a real card.`,
+          );
+          csnUnresolvedAll.push(...csnUnresolvedIds);
+        }
+
+        const candidateRecords: Record<string, string>[] = resolvedRows
+          .filter((r) => !r.unresolved)
+          .map((r) => r.row);
+        csnPersistedFromBiostar += csnToPersist.length;
+
+        // ------------------------------------------------------------------
+        // Send BioStar only what actually changed.
+        //
+        // `import_option: 2` is per-record Overwrite, so every row in this file
+        // marks that user modified in BioStar, and BioStar's Automatic User
+        // Synchronization then re-transfers them to every connected device.
+        // Exporting the whole roster every run is therefore not merely wasteful
+        // — it is what re-enrolled thousands of users on the gates.
+        //
+        // The comparison is on the rendered row, not on the Postgres columns,
+        // because a row can change without any column changing: a card newly
+        // resolved from BioStar, or a first activation window. Hashing what we
+        // are about to send is the only comparison that cannot miss those.
+        // ------------------------------------------------------------------
+        // One CSV line per user_id, keeping the LAST occurrence.
+        //
+        // A duplicated id in the source renders two different lines under the
+        // same key, but only one hash can be stored against the one student
+        // row — so whichever variant loses that race mismatches on every later
+        // run and that person is re-imported, and re-transferred to every
+        // device, forever. Keeping the last one matches what the PostgreSQL
+        // upsert keeps, so the exported row and the roster row never disagree
+        // about which variant is canonical.
+        const dedupedByUserId = new Map<string, Record<string, string>>();
+        for (const row of candidateRecords)
+          dedupedByUserId.set(row.user_id, row);
+        const duplicateRowsDropped =
+          candidateRecords.length - dedupedByUserId.size;
+        if (duplicateRowsDropped > 0) {
+          csvDuplicateRowsDropped += duplicateRowsDropped;
+          this.logger.warn(
+            `[Batch ${batchNumber}] ${duplicateRowsDropped} duplicate source id(s) collapsed to one CSV row each`,
+          );
+        }
+        const uniqueCandidates = [...dedupedByUserId.values()];
+
+        const rowHashes = new Map<string, string>();
+        const formattedRecords = uniqueCandidates.filter((row) => {
+          const hash = this.hashCsvRow(row, dasmaHeaders);
+          rowHashes.set(row.user_id, hash);
+          const unchanged =
+            existingMap.get(row.user_id)?.biostar_row_hash === hash;
+          if (unchanged) csvRowsSuppressed++;
+          return !unchanged;
+        });
+        for (const row of formattedRecords) {
+          importQueue.delete(row.user_id);
+          importQueue.set(row.user_id, row);
+          pendingHashes.set(row.user_id, rowHashes.get(row.user_id));
+        }
+        if (formattedRecords.length === 0) batchesSkippedNoChanges++;
+        while (importQueue.size >= importMaxRows) {
+          await uploadImport(takeImport(), pendingHashes);
+        }
+
         if (skippedRecords.length > 0) {
           const skippedFile = path.join(
             this.logDir,
@@ -2461,25 +2510,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           );
         }
 
-        totalProcessed += formattedRecords.length;
-        totalActiveExported += formattedRecords.length;
         totalArchivedDisabledExported += batchRecordsWithPhoto.filter(
           (r) => r.isArchived === true,
         ).length;
         void (totalSkipped += skippedRecords.length);
-        void (totalEnabled += formattedRecords.filter((r) => {
-          const campusEntry = r.original_campus_entry
-            ?.toString()
-            ?.toUpperCase();
-          return campusEntry === 'Y';
-        }).length);
-        void (totalDisabled += formattedRecords.filter((r) => {
-          const campusEntry = r.original_campus_entry
-            ?.toString()
-            ?.toUpperCase();
-          return campusEntry === 'N';
-        }).length);
-
         batchRecords.length = 0;
         batchRecordsWithPhoto.length = 0;
         skippedRecords.length = 0;
@@ -2493,6 +2527,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           global.gc();
         }
       }
+
+      // The last, partly filled import.
+      while (importQueue.size > 0) {
+        await uploadImport(takeImport(), pendingHashes);
+      }
+      await this.commonService.cleanupTempFiles(tempDir);
 
       this.logger.log('All batches processed, performing final cleanup...');
 
