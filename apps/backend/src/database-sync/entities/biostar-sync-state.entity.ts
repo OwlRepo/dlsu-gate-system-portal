@@ -43,6 +43,14 @@ export class BiostarSyncState {
   @Column({ type: 'text', nullable: true })
   lastError: string | null;
 
+  /** SQL Server's last write to the source at the last clean push. */
+  @Column({ type: 'varchar', nullable: true })
+  sourceLastWrite: string | null;
+
+  /** End of the BioStar audit-log window read by the last clean pull. */
+  @Column({ type: 'timestamp', nullable: true })
+  lastAuditAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

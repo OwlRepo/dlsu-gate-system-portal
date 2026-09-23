@@ -48,6 +48,8 @@ Source of truth: root `.env`.
 | `POLLING_INTERVAL` | report polling interval | Optional | websocket polling | websocket polling | reports gateway |
 | `SYNC_BATCH_SIZE` | sync batch size | Optional | batch tuning | batch tuning | database-sync services |
 | `BIOSTAR_IMPORT_MAX_ROWS` | rows per BioStar csv_import (default 100; caps SYNC_BATCH_SIZE) | Optional | batch tuning | batch tuning | database-sync Dasma path |
+| `BIOSTAR_CARD_DIRECTORY_MIN_ROWS` | rows needing a card check before the push reads the whole BioStar list instead of asking per user (default 50) | Optional | tuning | tuning | database-sync Dasma path |
+| `BIOSTAR_FULL_SYNC_INTERVAL_HOURS` | hours between full photo re-reads; unset = never (audit log names replaced photos) | Optional | tuning | tuning | database-sync Dasma path |
 
 ## Frontend (`apps/portal-web`)
 | Name | Purpose | Required | Local usage | Production usage | Affected modules |

@@ -180,7 +180,9 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
         query: jest.fn(async (text: string) => {
           if (text.includes('sys.columns'))
             return { recordset: [{ count: 1 }] };
-          const size = Number(text.match(/FETCH NEXT (\d+) ROWS/)?.[1] ?? 500);
+          const size = Number(
+            text.match(/FETCH NEXT (\d+) ROWS/)?.[1] ?? sourceRows.length,
+          );
           const offset = Number(text.match(/OFFSET (\d+) ROWS/)?.[1] ?? 0);
           return {
             recordset: sourceRows
@@ -412,6 +414,7 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
   }, 120000);
 
   it('regression: enrolling a new roster asks BioStar nothing per user', async () => {
+    service = await makeService({ BIOSTAR_CARD_DIRECTORY_MIN_ROWS: '0' });
     await service.executeDatabaseSync('e2e-1');
 
     expect(biostar.countOf('/api/users/12100001')).toBe(0);
@@ -1072,7 +1075,57 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
     // Defence in depth, not the mechanism: drift detection is what catches a
     // photo upload. This catches whatever changed in a detail that no list
     // field exposes at all.
+    // Replaced in the BioStar admin app: photo_exists stays true and nothing
+    // else on the list moves. BioStar's audit log is what names the user.
+    it('regression: fetches a photo the audit log says was replaced, when nothing else moved', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/OLD',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-audit-1');
+      expect((await byId('12100001')).Photo).toBe('/9j/OLD');
+
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/NEW',
+        cards: [{ card_id: '5551234' }],
+      };
+      biostar.scenario.auditRows = [
+        {
+          MENU: 'audit.menu.user',
+          METHOD: 'audit.method.3',
+          CONTENT: 'audit.user.photo',
+          TARGET: 'Dela Cruz, Juan(12100001)',
+        },
+      ];
+      await service.syncFromBiostar('e2e-audit-2');
+
+      expect((await byId('12100001')).Photo).toBe('/9j/NEW');
+    }, 90000);
+
+    it('regression: does not re-read every photo holder once a day unless configured', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/SETTLED',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-nodeep-1');
+      expect(pulls('12100001')).toBe(1);
+
+      const repo = dataSource.getRepository(BiostarSyncState);
+      const row = await state();
+      row.lastFullSyncAt = new Date(Date.now() - 48 * 3600 * 1000);
+      await repo.save(row);
+      await service.syncFromBiostar('e2e-nodeep-2');
+
+      expect(pulls('12100001')).toBe(1);
+    }, 90000);
+
     it('re-reads every candidate on the periodic deep pass', async () => {
+      service = await makeService({ BIOSTAR_FULL_SYNC_INTERVAL_HOURS: '24' });
       biostar.listPages = [{ total: 1, rows: [listRow()] }];
       biostar.userDetails['12100001'] = {
         user_id: '12100001',
