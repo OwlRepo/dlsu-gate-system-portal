@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 import axios from 'axios';
 
 import { BiostarApiService } from './biostar-api.service';
@@ -379,5 +380,107 @@ describe('BiostarApiService.fetchBiostarUserDetail', () => {
         1,
       ),
     ).resolves.toEqual({ user_id: 'ZZTEST001' });
+  });
+});
+
+describe('BiostarApiService — quiet, list-based lookups', () => {
+  let service: BiostarApiService;
+
+  const CONFIG: Record<string, string> = {
+    BIOSTAR_API_BASE_URL: 'https://biostar.fake',
+    BIOSTAR_API_LOGIN_ID: 'fake',
+    BIOSTAR_API_PASSWORD: 'fake',
+  };
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        BiostarApiService,
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn((key: string) => CONFIG[key]) },
+        },
+      ],
+    }).compile();
+    service = module.get(BiostarApiService);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  const httpError = (status: number) => {
+    (axios.isAxiosError as unknown as jest.Mock) = jest.fn(() => true);
+    return Object.assign(
+      new Error(`Request failed with status code ${status}`),
+      { isAxiosError: true, response: { status } },
+    );
+  };
+  const page = (total: number, rows: Record<string, unknown>[]) => ({
+    data: { UserCollection: { total: String(total), rows } },
+  });
+
+  it('error: returns null when a page of the user list cannot be read', async () => {
+    (axios.get as jest.Mock).mockRejectedValueOnce(httpError(500));
+
+    await expect(
+      service.listUserCardCounts('t0ken', 's3ss10n'),
+    ).resolves.toBeNull();
+  });
+
+  it('error: logs one line, not two, for a detail failure it cannot explain', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    (axios.get as jest.Mock).mockRejectedValue(httpError(500));
+
+    await service.fetchBiostarUserDetail('ZZTEST001', 't0ken', 's3ss10n', 1);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]).toHaveLength(1);
+  });
+
+  it('edge: returns null when BioStar lists fewer users than it reports', async () => {
+    (axios.get as jest.Mock).mockResolvedValueOnce(
+      page(3, [
+        { user_id: 'A', card_count: '0' },
+        { user_id: 'B', card_count: '1' },
+      ]),
+    );
+
+    await expect(
+      service.listUserCardCounts('t0ken', 's3ss10n'),
+    ).resolves.toBeNull();
+  });
+
+  // 20,000 new students used to print 40,000 WARN lines per sync: "not in
+  // BioStar yet" is the normal answer for everyone being enrolled.
+  it('regression: says nothing when BioStar does not hold the user (400)', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    (axios.get as jest.Mock).mockRejectedValue(httpError(400));
+
+    await expect(
+      service.fetchBiostarUserDetail('ZZTEST001', 't0ken', 's3ss10n', 3),
+    ).resolves.toMatchObject({ definitive: true });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('happy: maps every listed user to their card count across pages', async () => {
+    const first = Array.from({ length: 500 }, (_, i) => ({
+      user_id: String(i),
+      card_count: '0',
+    }));
+    (axios.get as jest.Mock)
+      .mockResolvedValueOnce(page(501, first))
+      .mockResolvedValueOnce(
+        page(501, [{ user_id: '91200000', card_count: '2' }]),
+      );
+
+    const counts = await service.listUserCardCounts('t0ken', 's3ss10n');
+
+    expect(counts?.size).toBe(501);
+    expect(counts?.get('91200000')).toBe(2);
+    expect(counts?.get('0')).toBe(0);
+    expect((axios.get as jest.Mock).mock.calls[1][1].params).toMatchObject({
+      limit: 500,
+      offset: 500,
+    });
   });
 });

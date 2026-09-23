@@ -180,7 +180,7 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
         query: jest.fn(async (text: string) => {
           if (text.includes('sys.columns'))
             return { recordset: [{ count: 1 }] };
-          const size = Number(process.env.SYNC_BATCH_SIZE ?? '500');
+          const size = Number(text.match(/FETCH NEXT (\d+) ROWS/)?.[1] ?? 500);
           const offset = Number(text.match(/OFFSET (\d+) ROWS/)?.[1] ?? 0);
           return {
             recordset: sourceRows
@@ -256,6 +256,10 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       user_id: '12100001',
       cards: [{ card_id: '9876543210' }],
     };
+    // The real server lists every user it holds; the lookup now starts there.
+    biostar.listPages = [
+      { total: 1, rows: [{ user_id: '12100001', card_count: '1' }] },
+    ];
     service = await makeService({});
 
     await service.executeDatabaseSync('e2e-1');
@@ -385,6 +389,34 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
     expect(biostar.countOf('/api/users/csv_import')).toBe(1);
     expect((await byId('12100001')).biostar_row_hash).toMatch(/^[0-9a-f]{64}$/);
   }, 120000);
+
+  it('error: sends BioStar nothing more once an import answers "still importing"', async () => {
+    service = await makeService({ BIOSTAR_IMPORT_MAX_ROWS: '1' });
+    sourceRows = [
+      sourceRow(),
+      sourceRow({ ID: '12100002', FirstName: 'Maria' }),
+    ];
+    biostar.scenario.importCode = '4';
+
+    await service.executeDatabaseSync('e2e-1');
+
+    expect(biostar.countOf('/api/users/csv_import')).toBe(1);
+    expect((await byId('12100001')).biostar_row_hash).toBeNull();
+    expect((await byId('12100002')).biostar_row_hash).toBeNull();
+
+    biostar.scenario.importCode = '0';
+    await service.executeDatabaseSync('e2e-2');
+
+    expect(biostar.countOf('/api/users/csv_import')).toBe(3);
+    expect((await byId('12100002')).biostar_row_hash).toMatch(/^[0-9a-f]{64}$/);
+  }, 120000);
+
+  it('regression: enrolling a new roster asks BioStar nothing per user', async () => {
+    await service.executeDatabaseSync('e2e-1');
+
+    expect(biostar.countOf('/api/users/12100001')).toBe(0);
+    expect(biostar.lastUploadText().split('\n')[1]).toContain('12100001');
+  }, 90000);
 
   it('records no hash when the import fails, so the row goes again', async () => {
     biostar.scenario.importCode = '8'; // arrives as HTTP 404
@@ -1091,6 +1123,7 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
     it('spreads a multi-batch roster across one upload per batch', async () => {
       process.env.SYNC_BATCH_SIZE = '500';
       try {
+        service = await makeService({ BIOSTAR_IMPORT_MAX_ROWS: '500' });
         sourceRows = Array.from({ length: 1200 }, (_, i) =>
           sourceRow({ ID: String(12100000 + i) }),
         );

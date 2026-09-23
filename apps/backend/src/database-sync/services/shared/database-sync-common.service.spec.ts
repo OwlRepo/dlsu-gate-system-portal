@@ -335,14 +335,14 @@ describe('DatabaseSyncCommonService — phase timings', () => {
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('adds the elapsed milliseconds to the phase', () => {
+  it('edge: adds the elapsed milliseconds to a phase that has not run yet', () => {
     jest.spyOn(Date, 'now').mockReturnValue(1500);
     const timings: Record<string, number> = {};
     service.addElapsed(timings, 'csvUpload', 1000);
     expect(timings).toEqual({ csvUpload: 500 });
   });
 
-  it('sums a phase that runs once per batch', () => {
+  it('edge: sums a phase that runs once per batch', () => {
     jest.spyOn(Date, 'now').mockReturnValue(1500);
     const timings: Record<string, number> = { csvUpload: 200 };
     service.addElapsed(timings, 'csvUpload', 1000);
