@@ -274,6 +274,19 @@ test("edge: findBashWriteTargets catches sed -i, perl -i, tee, redirects and cp/
   assert.deepEqual(findBashWriteTargets("cp /tmp/x.ts src/a.ts && mv a b"), ["src/a.ts", "b"]);
 });
 
+test("edge: findBashWriteTargets treats inline interpreter scripts that name a source file as writes", () => {
+  assert.deepEqual(
+    findBashWriteTargets(`node -e "require('fs').writeFileSync('apps/backend/src/x.service.ts', code)"`),
+    ["apps/backend/src/x.service.ts"],
+  );
+  assert.deepEqual(findBashWriteTargets(`python3 -c "open('apps/portal-web/src/lib/a.ts','w').write(s)"`), ["apps/portal-web/src/lib/a.ts"]);
+  assert.deepEqual(
+    findBashWriteTargets("python3 - <<'EOF'\np='apps/backend/src/app.service.ts'\nopen(p,'w').write('x')\nEOF"),
+    ["apps/backend/src/app.service.ts"],
+  );
+  assert.deepEqual(findBashWriteTargets(`bun -e "await Bun.write('apps/portal-web/src/b.tsx', t)"`), ["apps/portal-web/src/b.tsx"]);
+});
+
 // ----------------------------------------------------------- regression cases
 
 test("regression: an it( inside a string or comment (a fixture) is not a case", () => {
@@ -318,6 +331,12 @@ test("regression: a skipped or todo case in the JSON report is not a failure", (
     ROOT,
   );
   assert.deepEqual(parsed, { testLevel: [], fileLevel: [] });
+});
+
+test("regression: running a script file or an inline script that names no source file is not a write", () => {
+  assert.deepEqual(findBashWriteTargets("node scripts/ci/tdd-gate.mjs"), []);
+  assert.deepEqual(findBashWriteTargets(`node -e "console.log(process.version)"`), []);
+  assert.deepEqual(findBashWriteTargets("python3 scripts/tool.py apps/backend/src/a.ts"), []);
 });
 
 // ---------------------------------------------------------------- happy paths
