@@ -66,6 +66,8 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
   }
 
   let sourceRows: SourceRow[];
+  /** SQL Server's last write to the source; null = "cannot say". */
+  let fakeLastWrite: string | null = null;
 
   const sourceRow = (over: Partial<SourceRow> = {}): SourceRow => ({
     ID: '12100001',
@@ -175,11 +177,17 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
 
     // Real OFFSET/FETCH paging, fresh copies per query — the service truncates
     // the recordset it is handed in order to release memory.
+    fakeLastWrite = null;
     const fakePool = {
       request: () => ({
+        input() {
+          return this;
+        },
         query: jest.fn(async (text: string) => {
           if (text.includes('sys.columns'))
             return { recordset: [{ count: 1 }] };
+          if (text.includes('dm_db_index_usage_stats'))
+            return { recordset: [{ lastWrite: fakeLastWrite }] };
           const size = Number(
             text.match(/FETCH NEXT (\d+) ROWS/)?.[1] ?? sourceRows.length,
           );
@@ -477,6 +485,30 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
     const lines = biostar.lastUploadText().trim().split(/\r?\n/);
     expect(lines).toHaveLength(2);
     expect(lines[1].startsWith('12100001,')).toBe(true);
+  }, 120000);
+
+  // A rejected row must go again even when nobody writes to the source: the
+  // skip marker may only be kept after a run BioStar accepted in full.
+  it('regression: re-sends a row BioStar rejected even though the source did not change', async () => {
+    fakeLastWrite = '2026-09-23T17:37:20.960';
+    sourceRows = [
+      sourceRow(),
+      sourceRow({ ID: '12100002', FirstName: 'Maria' }),
+    ];
+    biostar.scenario.importCode = '1';
+    biostar.scenario.importFailedRows = ['2'];
+    biostar.scenario.errorCsv =
+      '\uFEFFuser_id,name,Error_Description\r\n12100001,Dela Cruz Juan,Rejected.\r\n';
+
+    await service.executeDatabaseSync('e2e-1');
+
+    biostar.scenario.importCode = '0';
+    biostar.scenario.importFailedRows = null;
+    biostar.scenario.errorCsv = undefined;
+    await service.executeDatabaseSync('e2e-2');
+
+    expect(biostar.countOf('/api/users/csv_import')).toBe(2);
+    expect(biostar.lastUploadText()).toContain('\n12100001,');
   }, 120000);
 
   // BioStar's error file cannot always be trusted to name our rows — a live
@@ -1122,6 +1154,32 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       await service.syncFromBiostar('e2e-nodeep-2');
 
       expect(pulls('12100001')).toBe(1);
+    }, 90000);
+
+    // Measured 2026-09-23: the skip marker was reset while a pull ran, and the
+    // pull's save at the end wrote the old value back, so the next push
+    // skipped a resend it was asked to make.
+    it('regression: a pull does not write back a skip marker changed while it ran', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      const repo = dataSource.getRepository(BiostarSyncState);
+      await service.syncFromBiostar('e2e-race-0');
+      await repo.update(
+        { schemaKey: 'dasma' },
+        { sourceLastWrite: '2026-09-23T17:37:20.960' },
+      );
+      const realFindOne = repo.findOne.bind(repo);
+      const spy = jest
+        .spyOn(repo, 'findOne')
+        .mockImplementationOnce(async (options) => {
+          const loaded = await realFindOne(options);
+          await repo.update({ schemaKey: 'dasma' }, { sourceLastWrite: null });
+          return loaded;
+        });
+
+      await service.syncFromBiostar('e2e-race-1');
+      spy.mockRestore();
+
+      expect((await state()).sourceLastWrite).toBeNull();
     }, 90000);
 
     it('re-reads every candidate on the periodic deep pass', async () => {

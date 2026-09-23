@@ -3,6 +3,16 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as https from 'https';
 
+/**
+ * BioStar's user list reduced to card counts. `complete` is false when the
+ * list held fewer distinct users than BioStar reported — measured 2026-09-23
+ * at 19,653 users — so a user missing from `counts` is unknown, not absent.
+ */
+export type CardDirectory = {
+  counts: Map<string, number>;
+  complete: boolean;
+};
+
 @Injectable()
 export class BiostarApiService {
   private readonly logger = new Logger(BiostarApiService.name);
@@ -329,7 +339,7 @@ export class BiostarApiService {
   async listUserCardCounts(
     token: string,
     sessionId: string,
-  ): Promise<Map<string, number> | null> {
+  ): Promise<CardDirectory | null> {
     const pageSize = 500;
     const counts = new Map<string, number>();
     try {
@@ -355,7 +365,13 @@ export class BiostarApiService {
           );
         }
         if (rows.length === 0 || offset + pageSize >= total) {
-          return counts.size >= total ? counts : null;
+          const complete = counts.size >= total;
+          if (!complete) {
+            this.logger.warn(
+              `[Dasma Biostar] The user list held ${counts.size} distinct users of the ${total} BioStar reports; the missing ones are looked up one by one`,
+            );
+          }
+          return { counts, complete };
         }
       }
     } catch (error) {

@@ -20,7 +20,7 @@ import { Student } from '../../students/entities/student.entity';
 import { SyncSchedule } from '../entities/sync-schedule.entity';
 import { BiostarSyncState } from '../entities/biostar-sync-state.entity';
 import { DatabaseSyncCommonService } from './shared/database-sync-common.service';
-import { BiostarApiService } from './shared/biostar-api.service';
+import { BiostarApiService, CardDirectory } from './shared/biostar-api.service';
 
 /** The datetime format BioStar's CSV import accepts. */
 const BIOSTAR_DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSS';
@@ -133,7 +133,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
     const state = await this.getOrCreateBiostarSyncState();
     state.lastRunAt = new Date();
-    await this.biostarSyncStateRepository.save(state);
+    await this.savePullState(state);
 
     const runStartMs = Date.now();
     const timingsMs: Record<string, number> = {
@@ -585,7 +585,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           state.lastProcessedUserId =
             rows.length > 0 ? String(rows[rows.length - 1].user_id) : null;
           state.lastError = (pageError as Error)?.message ?? String(pageError);
-          await this.biostarSyncStateRepository.save(state);
+          await this.savePullState(state);
           this.logger.error(
             `[Dasma Biostar] Page failed at offset=${offset}, checkpoint saved for resume`,
             pageError,
@@ -596,7 +596,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         state.lastProcessedOffset = offset + limit;
         state.lastProcessedUserId =
           rows.length > 0 ? String(rows[rows.length - 1].user_id) : null;
-        await this.biostarSyncStateRepository.save(state);
+        await this.savePullState(state);
 
         offset += limit;
 
@@ -651,7 +651,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         state.lastError = `Run incomplete — ${incompleteReasons.join('; ')}`;
         this.logger.warn(`[Dasma Biostar] ${state.lastError}`);
       }
-      await this.biostarSyncStateRepository.save(state);
+      await this.savePullState(state);
 
       const durationMs = Date.now() - runStartMs;
       this.logger.log(
@@ -725,7 +725,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       }
     } catch (error) {
       state.lastError = error?.message ?? String(error);
-      await this.biostarSyncStateRepository.save(state);
+      await this.savePullState(state);
       throw error;
     }
   }
@@ -811,7 +811,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
    */
   private async sweepUncheckedRemarks(
     jobName: string,
-    cardDirectory: Map<string, number> | null,
+    cardDirectory: CardDirectory | null,
     session: () => Promise<{ token: string; sessionId: string }>,
   ): Promise<number> {
     const SWEEP_SIZE = 500;
@@ -828,10 +828,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // there to be stale — including everyone this run just created. The
       // user list already answered for them; stamp them in one statement.
       const notInBiostar = new Set(
-        cardDirectory
+        cardDirectory?.complete
           ? unchecked
               .map((s) => s.ID_Number)
-              .filter((id) => !cardDirectory.has(id))
+              .filter((id) => !cardDirectory.counts.has(id))
           : [],
       );
       if (notInBiostar.size > 0) {
@@ -982,7 +982,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     existing: Student | undefined,
     session: () => Promise<{ token: string; sessionId: string }>,
     rateLimitTracker: { count: number },
-    cardDirectory: Map<string, number> | null,
+    cardDirectory: CardDirectory | null,
   ): Promise<{
     csn: string;
     unresolved: boolean;
@@ -1126,7 +1126,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   /** Reads the run's card directory; null means "ask per user", as before. */
   private async loadCardDirectory(
     session: () => Promise<{ token: string; sessionId: string }>,
-  ): Promise<Map<string, number> | null> {
+  ): Promise<CardDirectory | null> {
     try {
       const { token, sessionId } = await session();
       return await this.biostarApiService.listUserCardCounts(token, sessionId);
@@ -1145,7 +1145,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     existing: Student | undefined,
     session: () => Promise<{ token: string; sessionId: string }>,
     rateLimitTracker: { count: number },
-    cardDirectory: Map<string, number> | null,
+    cardDirectory: CardDirectory | null,
   ): Promise<{
     csn: string;
     unresolved: boolean;
@@ -1164,7 +1164,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     // The list says this person is not in BioStar, or holds no card there.
     // Either way an empty `csn` cannot blank a card, so there is nothing to
     // ask. Only a listed user with a card we have not stored needs a lookup.
-    if (cardDirectory && (cardDirectory.get(userId) ?? 0) === 0) {
+    // A user missing from an incomplete list is unknown, so it is asked.
+    const listedCards = cardDirectory?.counts.get(userId);
+    if (
+      cardDirectory &&
+      (listedCards === 0 ||
+        (listedCards === undefined && cardDirectory.complete))
+    ) {
       return { csn: '', unresolved: false, fetched: false, lookedUp: false };
     }
     const { token, sessionId } = await session();
@@ -1199,6 +1205,18 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     );
     const csn = this.normalizeUniqueIdValue(card) ?? '';
     return { csn, unresolved: false, fetched: csn !== '', lookedUp: true };
+  }
+
+  /**
+   * Saves the pull's cursors, never the push's skip marker. A pull holds the
+   * row it loaded for its whole run; writing all of it back restored a marker
+   * reset meanwhile (2026-09-23, L4), and the next push skipped a resend.
+   */
+  private async savePullState(state: BiostarSyncState): Promise<void> {
+    // Timestamps stay TypeORM's: updatedAt is stamped by the update itself.
+    const { id, sourceLastWrite, createdAt, updatedAt, ...pullOwned } = state;
+    void [sourceLastWrite, createdAt, updatedAt];
+    await this.biostarSyncStateRepository.update(id, pullOwned);
   }
 
   private async getOrCreateBiostarSyncState(): Promise<BiostarSyncState> {
@@ -1440,7 +1458,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // and only when more rows need a card check than it costs pages to read
       // (40 at 20k users; 50 chosen above that). undefined = not read yet;
       // null = could not be read in full, so lookups go per user.
-      let cardDirectory: Map<string, number> | null | undefined;
+      let cardDirectory: CardDirectory | null | undefined;
       const parsedDirectoryMin = parseInt(
         String(this.configService.get('BIOSTAR_CARD_DIRECTORY_MIN_ROWS') ?? ''),
         10,
@@ -2641,19 +2659,21 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       );
       await this.commonService.cleanupTempFiles(tempDir);
 
-      // Remember the source snapshot only when every changed row reached
-      // BioStar or was definitively rejected by it; anything that may still
-      // need sending keeps the next run from skipping.
+      // Remember the source snapshot only when BioStar accepted every changed
+      // row. A rejected row keeps no hash and must go again next run — a
+      // deactivation BioStar refused would otherwise wait for an unrelated
+      // write to the source table before it is retried.
       const pushClean =
         biostarUploadsHalted === null &&
         partialImportUnparsed.length === 0 &&
         csnUnresolvedAll.length === 0 &&
+        csvRowsRejectedByBiostar.length === 0 &&
         uploadFailedBatches === 0 &&
-        csvImportOutcomes.every(
-          (o) => o.outcome === 'success' || o.outcome === 'partial',
-        );
+        csvImportOutcomes.every((o) => o.outcome === 'success');
       pushState.sourceLastWrite = pushClean ? sourceLastWrite : null;
-      await this.biostarSyncStateRepository.save(pushState);
+      await this.biostarSyncStateRepository.update(pushState.id, {
+        sourceLastWrite: pushState.sourceLastWrite,
+      });
 
       const scheduleNumber = parseInt(jobName.replace('sync-', ''));
       if (!isNaN(scheduleNumber)) {

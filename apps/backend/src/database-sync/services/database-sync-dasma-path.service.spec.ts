@@ -370,6 +370,9 @@ describe('DatabaseSyncDasmaPathService', () => {
               Object.assign(biostarState, d),
             ),
             save: jest.fn(async (d: BiostarSyncState) => d),
+            update: jest.fn(async (_id: number, d: Partial<BiostarSyncState>) =>
+              Object.assign(biostarState, d),
+            ),
           },
         },
         {
@@ -2463,7 +2466,9 @@ describe('DatabaseSyncDasmaPathService', () => {
       ).length;
     const withCardDirectory = (directory: Map<string, number> | null) =>
       Object.assign(biostarApi, {
-        listUserCardCounts: jest.fn(async () => directory),
+        listUserCardCounts: jest.fn(async () =>
+          directory ? { counts: directory, complete: true } : null,
+        ),
       });
     const importAnswers = (answer: () => Promise<unknown>) => {
       (axios.post as jest.Mock).mockImplementation(async (url: string) => {
@@ -2541,6 +2546,41 @@ describe('DatabaseSyncDasmaPathService', () => {
         expect.anything(),
       );
       expect(diag().csvExport.csnApiLookups).toBe(1);
+    });
+
+    // Measured 2026-09-23 (L4): BioStar's name-ordered list returned fewer
+    // distinct users than it reported, and the whole directory was thrown
+    // away — 19,602 one-by-one lookups, 17 minutes. Only the missing need one.
+    it('edge: an incomplete user list still answers for the users it does hold', async () => {
+      CONFIG.BIOSTAR_CARD_DIRECTORY_MIN_ROWS = '0';
+      Object.assign(biostarApi, {
+        listUserCardCounts: jest.fn(async () => ({
+          counts: new Map([
+            ['12100001', 0],
+            ['12100002', 0],
+          ]),
+          complete: false,
+        })),
+      });
+      for (const id of ['12100001', '12100002', '12100003']) {
+        studentRepo.rows.push({
+          ID_Number: id,
+          Name: 'Santos, Juan',
+          Campus_Entry: 'Y',
+          isArchived: false,
+          remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+        } as Student);
+      }
+      sourceRows = threeRows();
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(
+        (biostarApi.fetchBiostarUserDetail as jest.Mock).mock.calls.map(
+          ([id]) => id,
+        ),
+      ).toEqual(['12100003']);
     });
 
     it('edge: looks up only a listed user whose card PostgreSQL does not hold', async () => {

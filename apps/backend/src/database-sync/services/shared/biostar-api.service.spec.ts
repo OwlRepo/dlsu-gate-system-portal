@@ -437,7 +437,7 @@ describe('BiostarApiService — quiet, list-based lookups', () => {
     expect(warn.mock.calls[0]).toHaveLength(1);
   });
 
-  it('edge: returns null when BioStar lists fewer users than it reports', async () => {
+  it('edge: keeps what it read, marked incomplete, when BioStar lists fewer users than it reports', async () => {
     (axios.get as jest.Mock).mockResolvedValueOnce(
       page(3, [
         { user_id: 'A', card_count: '0' },
@@ -445,9 +445,13 @@ describe('BiostarApiService — quiet, list-based lookups', () => {
       ]),
     );
 
-    await expect(
-      service.listUserCardCounts('t0ken', 's3ss10n'),
-    ).resolves.toBeNull();
+    const directory = await service.listUserCardCounts('t0ken', 's3ss10n');
+
+    expect(directory?.complete).toBe(false);
+    expect([...(directory?.counts ?? [])]).toEqual([
+      ['A', 0],
+      ['B', 1],
+    ]);
   });
 
   // 20,000 new students used to print 40,000 WARN lines per sync: "not in
@@ -473,11 +477,12 @@ describe('BiostarApiService — quiet, list-based lookups', () => {
         page(501, [{ user_id: '91200000', card_count: '2' }]),
       );
 
-    const counts = await service.listUserCardCounts('t0ken', 's3ss10n');
+    const directory = await service.listUserCardCounts('t0ken', 's3ss10n');
 
-    expect(counts?.size).toBe(501);
-    expect(counts?.get('91200000')).toBe(2);
-    expect(counts?.get('0')).toBe(0);
+    expect(directory?.complete).toBe(true);
+    expect(directory?.counts.size).toBe(501);
+    expect(directory?.counts.get('91200000')).toBe(2);
+    expect(directory?.counts.get('0')).toBe(0);
     expect((axios.get as jest.Mock).mock.calls[1][1].params).toMatchObject({
       limit: 500,
       offset: 500,
