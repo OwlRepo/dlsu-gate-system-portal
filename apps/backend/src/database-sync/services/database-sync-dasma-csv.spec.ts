@@ -326,6 +326,7 @@ describe('Dasma CSV — rendered bytes and volume', () => {
             findOne: jest.fn(async () => null),
             create: jest.fn((d: unknown) => d),
             save: jest.fn(async (d: unknown) => d),
+            update: jest.fn(async () => undefined),
           },
         },
         {

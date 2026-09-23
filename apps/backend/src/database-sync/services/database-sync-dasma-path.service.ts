@@ -133,7 +133,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
     const state = await this.getOrCreateBiostarSyncState();
     state.lastRunAt = new Date();
-    await this.biostarSyncStateRepository.save(state);
+    await this.savePullState(state);
 
     const runStartMs = Date.now();
     const timingsMs: Record<string, number> = {
@@ -585,7 +585,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           state.lastProcessedUserId =
             rows.length > 0 ? String(rows[rows.length - 1].user_id) : null;
           state.lastError = (pageError as Error)?.message ?? String(pageError);
-          await this.biostarSyncStateRepository.save(state);
+          await this.savePullState(state);
           this.logger.error(
             `[Dasma Biostar] Page failed at offset=${offset}, checkpoint saved for resume`,
             pageError,
@@ -596,7 +596,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         state.lastProcessedOffset = offset + limit;
         state.lastProcessedUserId =
           rows.length > 0 ? String(rows[rows.length - 1].user_id) : null;
-        await this.biostarSyncStateRepository.save(state);
+        await this.savePullState(state);
 
         offset += limit;
 
@@ -651,7 +651,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         state.lastError = `Run incomplete — ${incompleteReasons.join('; ')}`;
         this.logger.warn(`[Dasma Biostar] ${state.lastError}`);
       }
-      await this.biostarSyncStateRepository.save(state);
+      await this.savePullState(state);
 
       const durationMs = Date.now() - runStartMs;
       this.logger.log(
@@ -725,7 +725,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       }
     } catch (error) {
       state.lastError = error?.message ?? String(error);
-      await this.biostarSyncStateRepository.save(state);
+      await this.savePullState(state);
       throw error;
     }
   }
@@ -1199,6 +1199,18 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     );
     const csn = this.normalizeUniqueIdValue(card) ?? '';
     return { csn, unresolved: false, fetched: csn !== '', lookedUp: true };
+  }
+
+  /**
+   * Saves the pull's cursors, never the push's skip marker. A pull holds the
+   * row it loaded for its whole run; writing all of it back restored a marker
+   * reset meanwhile (2026-09-23, L4), and the next push skipped a resend.
+   */
+  private async savePullState(state: BiostarSyncState): Promise<void> {
+    // Timestamps stay TypeORM's: updatedAt is stamped by the update itself.
+    const { id, sourceLastWrite, createdAt, updatedAt, ...pullOwned } = state;
+    void [sourceLastWrite, createdAt, updatedAt];
+    await this.biostarSyncStateRepository.update(id, pullOwned);
   }
 
   private async getOrCreateBiostarSyncState(): Promise<BiostarSyncState> {
@@ -2653,7 +2665,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           (o) => o.outcome === 'success' || o.outcome === 'partial',
         );
       pushState.sourceLastWrite = pushClean ? sourceLastWrite : null;
-      await this.biostarSyncStateRepository.save(pushState);
+      await this.biostarSyncStateRepository.update(pushState.id, {
+        sourceLastWrite: pushState.sourceLastWrite,
+      });
 
       const scheduleNumber = parseInt(jobName.replace('sync-', ''));
       if (!isNaN(scheduleNumber)) {

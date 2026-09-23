@@ -370,6 +370,9 @@ describe('DatabaseSyncDasmaPathService', () => {
               Object.assign(biostarState, d),
             ),
             save: jest.fn(async (d: BiostarSyncState) => d),
+            update: jest.fn(async (_id: number, d: Partial<BiostarSyncState>) =>
+              Object.assign(biostarState, d),
+            ),
           },
         },
         {
