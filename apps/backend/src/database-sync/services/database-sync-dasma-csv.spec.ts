@@ -682,8 +682,8 @@ describe('Dasma CSV — rendered bytes and volume', () => {
       await service.executeDatabaseSync('run-2');
 
       expect(totalRowsWritten()).toBe(30);
-      // Only the batches actually holding a changed row are uploaded.
-      expect(importCallCount).toBe(3);
+      // The 30 changed rows travel together, whatever batches they sit in.
+      expect(importCallCount).toBe(1);
     }, 120000);
 
     it('is unaffected by the batch size', async () => {
