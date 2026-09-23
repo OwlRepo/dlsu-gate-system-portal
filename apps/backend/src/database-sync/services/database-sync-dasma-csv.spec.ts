@@ -254,10 +254,8 @@ describe('Dasma CSV — rendered bytes and volume', () => {
         query: jest.fn(async (text: string) => {
           if (text.includes('sys.columns'))
             return { recordset: [{ count: 1 }] };
-          // The service reads the batch size from process.env directly, not
-          // from ConfigService, so the fake pool must page by the same value or
-          // its offsets and ours drift apart.
-          const size = Number(process.env.SYNC_BATCH_SIZE ?? '500');
+          // Page by exactly what the service asked for, as a real server would.
+          const size = Number(text.match(/FETCH NEXT (\d+) ROWS/)?.[1] ?? 500);
           const offset = Number(text.match(/OFFSET (\d+) ROWS/)?.[1] ?? 0);
           return {
             recordset: sourceRows
@@ -621,8 +619,22 @@ describe('Dasma CSV — rendered bytes and volume', () => {
         sourceRow({ ID: String(12100000 + i) }),
       );
 
+    it('edge: splits a large change into imports of BIOSTAR_IMPORT_MAX_ROWS rows', async () => {
+      process.env.SYNC_BATCH_SIZE = '800';
+      sourceRows = Array.from({ length: 250 }, (_, i) =>
+        sourceRow({ ID: String(12100000 + i) }),
+      );
+
+      await service.executeDatabaseSync('run-1');
+
+      // No cap configured: 100, the only size Suprema documents.
+      expect(importCallCount).toBe(3);
+      expect(rowCountsPerCsv).toEqual([100, 100, 50]);
+    }, 120000);
+
     it('costs 25 overwrite imports on the first run and none on the second', async () => {
       process.env.SYNC_BATCH_SIZE = '800'; // the value the DASMA server runs
+      CONFIG.BIOSTAR_IMPORT_MAX_ROWS = '800';
       sourceRows = buildRoster();
 
       await service.executeDatabaseSync('run-1');
@@ -649,6 +661,7 @@ describe('Dasma CSV — rendered bytes and volume', () => {
 
     it('sends only the handful that changed, not the batches they sit in', async () => {
       process.env.SYNC_BATCH_SIZE = '800';
+      CONFIG.BIOSTAR_IMPORT_MAX_ROWS = '800';
       sourceRows = buildRoster();
       await service.executeDatabaseSync('run-1');
 
@@ -673,6 +686,7 @@ describe('Dasma CSV — rendered bytes and volume', () => {
 
     it('is unaffected by the batch size', async () => {
       process.env.SYNC_BATCH_SIZE = '500'; // the code default
+      CONFIG.BIOSTAR_IMPORT_MAX_ROWS = '500';
       sourceRows = buildRoster();
 
       await service.executeDatabaseSync('run-1');

@@ -279,16 +279,19 @@ describe('DatabaseSyncDasmaPathService', () => {
             // checkColumnExists('IsArchived') -> yes
             return { recordset: [{ count: 1 }] };
           }
-          // fetchBatches pages with OFFSET n ROWS; serve everything on page 1.
+          // Honour the page the service asked for, as a real server would.
           const offsetMatch = text.match(/OFFSET (\d+) ROWS/);
           const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+          const fetchMatch = text.match(/FETCH NEXT (\d+) ROWS/);
+          const size = fetchMatch ? Number(fetchMatch[1]) : sourceRows.length;
           // Fresh copies every query, exactly as a real driver returns. The
           // service truncates the recordset it is handed (`batchRecords.length
           // = 0`) to release memory, so returning the same array twice would
           // leave the second sync in a test seeing an empty roster.
           return {
-            recordset:
-              offset === 0 ? sourceRows.map((row) => ({ ...row })) : [],
+            recordset: sourceRows
+              .slice(offset, offset + size)
+              .map((row) => ({ ...row })),
           };
         }),
       }),
@@ -1807,6 +1810,117 @@ describe('DatabaseSyncDasmaPathService', () => {
       ).toEqual([]);
     });
 
+    // Where a run's time goes, read off the file instead of guessed — the
+    // 20k stress round and any slow production run both depend on it.
+    it('edge: reports wall time for every push phase, even one that never ran', async () => {
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      await service.executeDatabaseSync('run-1');
+
+      const { timingsMs } = diagnosticsWritten().at(-1);
+      expect(Object.keys(timingsMs).sort()).toEqual([
+        'csnResolve',
+        'csvUpload',
+        'persistRowHashes',
+        'postgresWrite',
+        'reconciliation',
+        'remarks',
+        'sourceRead',
+        'total',
+      ]);
+      for (const v of Object.values(timingsMs)) {
+        expect(Number.isInteger(v) && (v as number) >= 0).toBe(true);
+      }
+    });
+
+    // The unit fake has no user list, so this is the fallback path: a person
+    // with no stored card is looked up per run, and each lookup is counted.
+    it('edge: counts a per-user card lookup when the BioStar user list is unavailable', async () => {
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      const [first, second] = diagnosticsWritten();
+      expect(first.csvExport.csnApiLookups).toBe(2);
+      expect(second.csvExport.csnApiLookups).toBe(2);
+    });
+
+    // Changed-only export, pinned by identity: after one row changes, that row
+    // and nothing else goes to BioStar.
+    it('regression: names exactly the rows it sent to BioStar', async () => {
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002', FirstName: 'Maria' }),
+      ];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+      setClock('2026-08-28T08:00:00+08:00');
+      await service.executeDatabaseSync('run-3');
+
+      const [first, second, third] = diagnosticsWritten();
+      expect(second.rowsChanged).toBe(1);
+      expect(third.rowsChanged).toBe(0);
+      expect(first.csvExport.emittedIds).toEqual({
+        ids: ['12100001', '12100002'],
+        truncated: 0,
+      });
+      expect(second.csvExport.emittedIds).toEqual({
+        ids: ['12100002'],
+        truncated: 0,
+      });
+      expect(third.csvExport.emittedIds).toEqual({ ids: [], truncated: 0 });
+    });
+
+    it('happy: reports wall time per phase for the BioStar pull', async () => {
+      biostarPages = [
+        {
+          total: 1,
+          rows: [
+            {
+              user_id: '12100001',
+              name: 'Dela Cruz, Juan',
+              photo_exists: true,
+              card_count: '0',
+              last_modified: '100',
+            },
+          ],
+        },
+      ];
+      biostarDetails = {
+        '12100001': {
+          User: {
+            user_id: '12100001',
+            name: 'Dela Cruz, Juan',
+            photo: 'BASE64PHOTO',
+            disabled: 'false',
+          },
+        },
+      };
+      await service.syncFromBiostar('biostar-1');
+
+      const { timingsMs } = diagnosticsWritten().at(-1);
+      expect(Object.keys(timingsMs).sort()).toEqual([
+        'detailFetch',
+        'listFetch',
+        'postgresWrite',
+        'storedState',
+        'total',
+      ]);
+      for (const v of Object.values(timingsMs)) {
+        expect(Number.isInteger(v) && (v as number) >= 0).toBe(true);
+      }
+    });
+
     it('reports what was exported versus suppressed', async () => {
       sourceRows = [
         sourceRow({ ID: '12100001' }),
@@ -2331,6 +2445,193 @@ describe('DatabaseSyncDasmaPathService', () => {
       await service.executeDatabaseSync('run-2');
 
       expect(latestCsv().map((r) => r.user_id)).toEqual(['12100001']);
+    });
+  });
+
+  // =====================================================================
+  // BioStar load at scale — measured on the 2026-09-23 stress run
+  // =====================================================================
+  describe('BioStar load at scale', () => {
+    const diag = () =>
+      (fsMock.writeFileSync as jest.Mock).mock.calls
+        .filter(([p]) => String(p).includes('diagnostics'))
+        .map(([, body]) => JSON.parse(String(body)))
+        .at(-1);
+    const importCalls = () =>
+      (axios.post as jest.Mock).mock.calls.filter(([url]) =>
+        String(url).includes('/api/users/csv_import'),
+      ).length;
+    const withCardDirectory = (directory: Map<string, number> | null) =>
+      Object.assign(biostarApi, {
+        listUserCardCounts: jest.fn(async () => directory),
+      });
+    const importAnswers = (answer: () => Promise<unknown>) => {
+      (axios.post as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/api/attachments')) {
+          return { data: { filename: 'fake-upload.csv' } };
+        }
+        if (url.includes('/api/users/csv_import')) {
+          return answer();
+        }
+        return { data: {} };
+      });
+    };
+    const threeRows = () => [
+      sourceRow({ ID: '12100001' }),
+      sourceRow({ ID: '12100002' }),
+      sourceRow({ ID: '12100003' }),
+    ];
+
+    it('error: stops sending imports for the run once BioStar answers "still importing"', async () => {
+      CONFIG.BIOSTAR_IMPORT_MAX_ROWS = '1';
+      sourceRows = threeRows();
+      importAnswers(async () => ({
+        data: { Response: { code: '4', task_id: '1470' } },
+      }));
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(importCalls()).toBe(1);
+      const d = diag();
+      expect(d.csvImport).toHaveLength(1);
+      expect(d.csvImport[0]).toMatchObject({
+        outcome: 'timeout',
+        taskId: '1470',
+      });
+      expect(d.csvExport.biostarUploadsHalted).toEqual({
+        afterBatch: 1,
+        taskId: '1470',
+      });
+      expect(d.csvExport.rowsDeferredAfterHalt).toBe(2);
+      for (const id of ['12100001', '12100002', '12100003']) {
+        expect(studentRepo.byId(id)?.biostar_row_hash ?? null).toBeNull();
+      }
+    });
+
+    it('error: never re-sends an import whose request failed after it went out', async () => {
+      sourceRows = threeRows();
+      importAnswers(async () => {
+        throw new Error('socket hang up');
+      });
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(importCalls()).toBe(1);
+      expect(diag().csvImport[0]).toMatchObject({ outcome: 'timeout' });
+      expect(diag().csvExport.biostarUploadsHalted).toEqual({
+        afterBatch: 1,
+        taskId: null,
+      });
+    }, 30000);
+
+    it('edge: asks BioStar per user when its user list cannot be read', async () => {
+      withCardDirectory(null);
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(biostarApi.fetchBiostarUserDetail).toHaveBeenCalledWith(
+        '12100001',
+        't0ken',
+        's3ss10n',
+        3,
+        expect.anything(),
+      );
+      expect(diag().csvExport.csnApiLookups).toBe(1);
+    });
+
+    it('edge: looks up only a listed user whose card PostgreSQL does not hold', async () => {
+      withCardDirectory(
+        new Map([
+          ['12100001', 1],
+          ['12100002', 0],
+        ]),
+      );
+      biostarDetails['12100001'] = {
+        user_id: '12100001',
+        cards: [{ card_id: '4242424242' }],
+      };
+      // Already swept, so the remark sweep cannot be mistaken for a lookup.
+      for (const id of ['12100001', '12100002', '12100003']) {
+        studentRepo.rows.push({
+          ID_Number: id,
+          Name: 'Santos, Juan',
+          Campus_Entry: 'Y',
+          isArchived: false,
+          remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+        } as Student);
+      }
+      sourceRows = threeRows();
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(
+        (biostarApi.fetchBiostarUserDetail as jest.Mock).mock.calls.map(
+          ([id]) => id,
+        ),
+      ).toEqual(['12100001']);
+      expect(csvRowFor('12100001')?.csn).toBe('4242424242');
+      expect(csvRowFor('12100002')?.csn).toBe('');
+      expect(csvRowFor('12100003')?.csn).toBe('');
+      expect(diag().csvExport.csnApiLookups).toBe(1);
+    });
+
+    it('regression: a roster BioStar does not hold yet costs no per-user request', async () => {
+      withCardDirectory(new Map());
+      sourceRows = threeRows();
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(biostarApi.fetchBiostarUserDetail).not.toHaveBeenCalled();
+      expect(latestCsv().map((r) => r.csn)).toEqual(['', '', '']);
+      expect(diag().csvExport.csnApiLookups).toBe(0);
+    });
+
+    it('regression: the remark sweep stamps a user BioStar does not hold without asking', async () => {
+      withCardDirectory(new Map());
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(studentRepo.byId('12100001')?.remarks_checked_at).toBeInstanceOf(
+        Date,
+      );
+      expect(biostarApi.fetchBiostarUserDetail).not.toHaveBeenCalled();
+      expect(diag().remarks.sweptThisRun).toBe(1);
+    });
+
+    it('regression: logs in for a card lookup only when a batch needs one', async () => {
+      withCardDirectory(new Map());
+      CONFIG.BIOSTAR_IMPORT_MAX_ROWS = '1';
+      sourceRows = threeRows();
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      // One login for the user list, one per upload; none for card lookups.
+      expect(biostarApi.getApiToken).toHaveBeenCalledTimes(4);
+    });
+
+    it('happy: records how long each import took and the rows-per-import cap', async () => {
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      const d = diag();
+      expect(d.csvImport[0]).toMatchObject({
+        outcome: 'success',
+        taskId: null,
+      });
+      expect(Number.isInteger(d.csvImport[0].durationMs)).toBe(true);
+      expect(d.csvExport.importMaxRows).toBe(100);
+      expect(d.csvExport.biostarUploadsHalted).toBeNull();
     });
   });
 

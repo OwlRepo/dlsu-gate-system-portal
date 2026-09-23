@@ -47,6 +47,7 @@ Source of truth: root `.env`.
 | `BIOSTAR_API_BASE_URL` `BIOSTAR_API_LOGIN_ID` `BIOSTAR_API_PASSWORD` | BioStar backend integration | Yes (for BioStar features) | local integration | production integration | database-sync services |
 | `POLLING_INTERVAL` | report polling interval | Optional | websocket polling | websocket polling | reports gateway |
 | `SYNC_BATCH_SIZE` | sync batch size | Optional | batch tuning | batch tuning | database-sync services |
+| `BIOSTAR_IMPORT_MAX_ROWS` | rows per BioStar csv_import (default 100; caps SYNC_BATCH_SIZE) | Optional | batch tuning | batch tuning | database-sync Dasma path |
 
 ## Frontend (`apps/portal-web`)
 | Name | Purpose | Required | Local usage | Production usage | Affected modules |
