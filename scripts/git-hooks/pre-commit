@@ -7,7 +7,7 @@ if [ "$branch" = "main" ]; then
   exit 1
 fi
 
-if git diff --cached --name-only | grep -qE '^(agents/src/|scripts/generate-agent-defs\.mjs|\.claude/agents/|\.codex/agents/)'; then
+if git diff --cached --name-only | grep -qE '^(agents/src/|scripts/generate-agent-defs\.mjs|\.claude/agents/)'; then
   echo "pre-commit: persona files staged - running agents:lint..."
   if ! node scripts/generate-agent-defs.mjs --check; then
     echo "pre-commit: agents:lint failed. Run 'npm run agents:generate' and restage the generated files." >&2

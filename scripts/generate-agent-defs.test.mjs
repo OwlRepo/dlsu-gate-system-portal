@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { GLOBAL_POLICY, renderClaudeMarkdown, renderCodexToml } from "./generate-agent-defs.mjs";
+import { GLOBAL_POLICY, renderClaudeMarkdown } from "./generate-agent-defs.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(SCRIPT_DIR, "..");
@@ -18,7 +18,6 @@ function fixturePersona(overrides = {}) {
     filePrefix: "99",
     description: "Fixture persona for generator tests.",
     claude: { tools: ["Read", "Grep"], model: "sonnet" },
-    codex: { model: "gpt-5.6-sol", modelReasoningEffort: "medium", sandboxMode: "read-only", mcpServers: [] },
     ownedGlobs: [],
     systemPrompt: "You are a fixture persona.\n\n# Section\n- one\n- two\n",
     ...overrides,
@@ -58,8 +57,9 @@ function expectCheckFailure(tmp, pattern) {
 
 // ---------------------------------------------------------------- error cases
 
-test("error: a system prompt containing a TOML terminator is refused", () => {
-  assert.throws(() => renderCodexToml(fixturePersona({ systemPrompt: 'bad """ prompt\n' })), /"""/);
+test("error: a persona missing a required field is refused", () => {
+  assert.throws(() => renderClaudeMarkdown(fixturePersona({ description: "" })), /description/);
+  assert.throws(() => renderClaudeMarkdown(fixturePersona({ claude: { tools: [], model: "sonnet" } })), /tools/);
 });
 
 test("error: --check fails when a generated Claude file is hand-edited", () => {
@@ -78,9 +78,8 @@ test("error: --check fails on an orphan generated file with no matching source",
   const tmp = setupScratchRepo();
   try {
     runGenerator(tmp);
-    mkdirSync(join(tmp, ".codex", "agents"), { recursive: true });
-    writeFileSync(join(tmp, ".codex", "agents", "orphan.toml"), 'name = "orphan"\n');
-    expectCheckFailure(tmp, /orphan\.toml[\s\S]*delete this file or add its source/);
+    writeFileSync(join(tmp, ".claude", "agents", "50-orphan.md"), "---\nname: orphan\n---\n");
+    expectCheckFailure(tmp, /50-orphan\.md[\s\S]*delete this file or add its source/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -110,26 +109,25 @@ test("error: --check fails when a generated file is missing", () => {
 
 // ----------------------------------------------------------------- edge cases
 
-test("edge: renderCodexToml omits mcp_servers when the array is empty", () => {
-  const output = renderCodexToml(fixturePersona({ codex: { model: "gpt-5.6-sol", mcpServers: [] } }));
-  assert.doesNotMatch(output, /mcp_servers/);
-});
-
-test("edge: renderCodexToml includes mcp_servers when populated", () => {
-  const output = renderCodexToml(fixturePersona({ codex: { model: "gpt-5.6-sol", mcpServers: ["linear"] } }));
-  assert.match(output, /mcp_servers = \["linear"\]/);
-});
-
-test("edge: descriptions with quotes and backslashes are escaped on both runtimes", () => {
+test("edge: descriptions with quotes and backslashes are escaped", () => {
   const persona = fixturePersona({ description: 'Say "hi" \\ bye' });
   assert.match(renderClaudeMarkdown(persona), /description: "Say \\"hi\\" \\\\ bye"/);
-  assert.match(renderCodexToml(persona), /description = "Say \\"hi\\" \\\\ bye"/);
+});
+
+test("edge: generation writes Claude agents only, never a .codex directory", () => {
+  const tmp = setupScratchRepo();
+  try {
+    runGenerator(tmp);
+    assert.ok(existsSync(join(tmp, ".claude", "agents", "99-fixture-agent.md")));
+    assert.equal(existsSync(join(tmp, ".codex")), false);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 // ----------------------------------------------------------- regression cases
 
 test("regression: GLOBAL_POLICY carries caveman ultra, the stack persona and the gate invariants", () => {
-  assert.ok(!GLOBAL_POLICY.includes('"""'));
   assert.match(GLOBAL_POLICY, /caveman ultra/);
   assert.match(GLOBAL_POLICY, /NestJS/);
   assert.match(GLOBAL_POLICY, /studentMutationLock/);
@@ -179,16 +177,6 @@ test("happy: renderClaudeMarkdown produces exact frontmatter + body + policy", (
       persona.systemPrompt +
       GLOBAL_POLICY,
   );
-});
-
-test("happy: renderCodexToml produces TOML with developer_instructions and the policy", () => {
-  const output = renderCodexToml(fixturePersona());
-  assert.match(output, /^name = "fixture-agent"\n/);
-  assert.match(output, /model = "gpt-5.6-sol"\n/);
-  assert.match(output, /model_reasoning_effort = "medium"\n/);
-  assert.match(output, /sandbox_mode = "read-only"\n/);
-  assert.match(output, /developer_instructions = """You are a fixture persona\./);
-  assert.ok(output.endsWith(GLOBAL_POLICY + '"""\n'));
 });
 
 test("happy: --check passes immediately after a fresh generation", () => {
