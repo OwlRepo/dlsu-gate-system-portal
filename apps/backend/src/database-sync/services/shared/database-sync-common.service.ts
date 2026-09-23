@@ -822,6 +822,20 @@ export class DatabaseSyncCommonService {
   }
 
   /** Caps an id list so one bad run cannot write a gigabyte of JSON. */
+  /**
+   * Adds the milliseconds since `startMs` to `timings[phase]`.
+   *
+   * Summed, not overwritten: most phases run once per batch, and the number
+   * worth reading off a diagnostics file is the run's total per phase.
+   */
+  addElapsed(
+    timings: Record<string, number>,
+    phase: string,
+    startMs: number,
+  ): void {
+    timings[phase] = (timings[phase] ?? 0) + (Date.now() - startMs);
+  }
+
   capIds(ids: string[], limit = 500): { ids: string[]; truncated: number } {
     return {
       ids: ids.slice(0, limit),

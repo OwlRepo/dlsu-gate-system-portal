@@ -319,3 +319,33 @@ describe('DatabaseSyncCommonService — BioStar name and import-error parsing', 
     });
   });
 });
+
+describe('DatabaseSyncCommonService — phase timings', () => {
+  let service: DatabaseSyncCommonService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DatabaseSyncCommonService,
+        { provide: ConfigService, useValue: { get: jest.fn() } },
+      ],
+    }).compile();
+    service = module.get<DatabaseSyncCommonService>(DatabaseSyncCommonService);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('adds the elapsed milliseconds to the phase', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1500);
+    const timings: Record<string, number> = {};
+    service.addElapsed(timings, 'csvUpload', 1000);
+    expect(timings).toEqual({ csvUpload: 500 });
+  });
+
+  it('sums a phase that runs once per batch', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1500);
+    const timings: Record<string, number> = { csvUpload: 200 };
+    service.addElapsed(timings, 'csvUpload', 1000);
+    expect(timings).toEqual({ csvUpload: 700 });
+  });
+});

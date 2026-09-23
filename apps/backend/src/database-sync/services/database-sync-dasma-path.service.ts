@@ -124,6 +124,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     await this.biostarSyncStateRepository.save(state);
 
     const runStartMs = Date.now();
+    const timingsMs: Record<string, number> = {
+      listFetch: 0,
+      storedState: 0,
+      detailFetch: 0,
+      postgresWrite: 0,
+    };
     let totalDiscovered = 0;
     let totalCandidates = 0;
     let totalDetailFetched = 0;
@@ -192,6 +198,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         if (listGroupId) {
           params.group_id = listGroupId;
         }
+        const listStart = Date.now();
         const response = await axios.get(`${apiBaseUrl}/api/users`, {
           params,
           headers: {
@@ -205,6 +212,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           timeout: 120000,
         });
 
+        this.commonService.addElapsed(timingsMs, 'listFetch', listStart);
         const userCollection = response.data?.UserCollection;
         if (!userCollection) {
           throw new BadRequestException(
@@ -229,11 +237,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
         // What PostgreSQL currently holds for the people on THIS page. Two
         // narrow queries, neither of which transfers a single photo byte.
+        const storedStart = Date.now();
         const stored = await this.loadStoredStateFor(
           rows
             .map((u: Record<string, unknown>) => String(u.user_id ?? ''))
             .filter((id) => id !== ''),
         );
+        this.commonService.addElapsed(timingsMs, 'storedState', storedStart);
         const cursorAtRunStart = state.lastModifiedCursor || '0';
         let pageDriftReads = 0;
         let pageDeepReads = 0;
@@ -318,6 +328,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         }
 
         try {
+          const detailStart = Date.now();
           const results = await this.commonService.runWithConcurrency(
             candidates,
             effectiveConcurrency,
@@ -334,6 +345,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             },
           );
 
+          this.commonService.addElapsed(timingsMs, 'detailFetch', detailStart);
+          const writeStart = Date.now();
           totalRateLimitHits += rateLimitTracker.count;
           if (rateLimitTracker.count >= 3) {
             const prev = effectiveConcurrency;
@@ -537,6 +550,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               }
             }
           }
+          this.commonService.addElapsed(timingsMs, 'postgresWrite', writeStart);
         } catch (pageError) {
           // The offset is the checkpoint; the cursor deliberately is not.
           // Pages beyond this one were never walked, and some of those users
@@ -635,6 +649,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       await this.commonService.writeSyncDiagnostics(jobKey, {
         direction: 'biostar-to-postgres',
         schemaEnv: 'dasma',
+        // Wall time per phase (ms), summed across list pages.
+        timingsMs: { ...timingsMs, total: durationMs },
         listNarrowedByLastModified: false,
         deepPass,
         driftReads: totalDriftReads,
@@ -961,8 +977,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   private async persistRowHashes(
     records: Record<string, string>[],
     hashes: Map<string, string>,
+    timingsMs: Record<string, number>,
   ): Promise<void> {
     const chunkSize = 50;
+    const hashStart = Date.now();
     try {
       for (let i = 0; i < records.length; i += chunkSize) {
         const chunk = records.slice(i, i + chunkSize);
@@ -988,6 +1006,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         }`,
       );
     }
+    this.commonService.addElapsed(timingsMs, 'persistRowHashes', hashStart);
   }
 
   private async resolveCsn(
@@ -1053,6 +1072,17 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     recordsProcessed: number;
   } | void> {
     let pool: sql.ConnectionPool | null = null;
+    /** Wall time per phase, summed across batches. Read off diag_*.json. */
+    const timingsMs: Record<string, number> = {
+      sourceRead: 0,
+      postgresWrite: 0,
+      csnResolve: 0,
+      csvUpload: 0,
+      persistRowHashes: 0,
+      remarks: 0,
+      reconciliation: 0,
+    };
+    const runStartMs = Date.now();
 
     try {
       this.logger.log(`Starting database sync for ${jobName}`);
@@ -1142,6 +1172,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       let csvRowsEmitted = 0;
       let batchesSkippedNoChanges = 0;
       let csnPersistedFromBiostar = 0;
+      /** Rows sent to BioStar for a card lookup — every card-less row, every run. */
+      let csnApiLookups = 0;
+      /** user_ids actually sent to BioStar this run (changed hash only). */
+      const csvEmittedIds: string[] = [];
       /** Rows BioStar rejected inside a partial import; only these are re-sent. */
       const csvRowsRejectedByBiostar: string[] = [];
       /** Batches whose partial import could not be reconciled row by row. */
@@ -1183,6 +1217,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         pool,
         hasIsArchivedColumn,
         batchSize,
+        timingsMs,
       )) {
         const normalizedRecords = batchRecords.map((record) =>
           this.normalizeRecord(record),
@@ -1209,6 +1244,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           seenIdsFromSource.add(r.ID_Number),
         );
 
+        const postgresWriteStart = Date.now();
         const existingMap = new Map();
         const idNumbers = batchRecordsWithPhoto.map((r) => r.ID_Number);
         const chunkSize = 100;
@@ -1445,6 +1481,11 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           `refresh students for CSN batch ${batchNumber}`,
         );
         refreshedStudents.forEach((s) => existingMap.set(s.ID_Number, s));
+        this.commonService.addElapsed(
+          timingsMs,
+          'postgresWrite',
+          postgresWriteStart,
+        );
 
         const csvFilePath = path.join(
           tempDir,
@@ -1473,6 +1514,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             10,
           ) || 8,
         );
+        const csnStart = Date.now();
         const { token: csnToken, sessionId: csnSessionId } =
           await this.biostarApiService.getApiToken();
         const csnRateLimitTracker = { count: 0 };
@@ -1632,6 +1674,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             const hadDbCsn = !!this.normalizeUniqueIdValue(
               existingMap.get(userId)?.Unique_ID,
             );
+            if (!hadDbCsn) csnApiLookups++;
             const { csn, unresolved, fetched } =
               await this.resolveDasmaCsnForCsvRow(
                 userId,
@@ -1672,6 +1715,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             `persist CSNs batch ${batchNumber}`,
           );
         }
+        this.commonService.addElapsed(timingsMs, 'csnResolve', csnStart);
 
         const csnUnresolvedIds = resolvedRows
           .filter((r) => r.unresolved)
@@ -1735,6 +1779,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           return !unchanged;
         });
         csvRowsEmitted += formattedRecords.length;
+        csvEmittedIds.push(...formattedRecords.map((r) => r.user_id));
 
         // Nothing to say. Writing a header-only CSV and importing it is still a
         // full overwrite request, so the upload has to be skipped outright —
@@ -1807,6 +1852,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           true,
         );
 
+        const uploadStart = Date.now();
         let retries = 3;
         while (retries > 0) {
           try {
@@ -1921,7 +1967,11 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               // 2026-09-23. Only when that file cannot be read or trusted is the
               // whole batch re-sent, which costs an extra export but can never
               // lose a row.
-              await this.persistRowHashes(formattedRecords, rowHashes);
+              await this.persistRowHashes(
+                formattedRecords,
+                rowHashes,
+                timingsMs,
+              );
               this.logger.log(
                 `[Batch ${batchNumber}] CSV import successful — all ${formattedRecords.length} changed records processed`,
               );
@@ -2039,6 +2089,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                   await this.persistRowHashes(
                     formattedRecords.filter((r) => !rejectedSet.has(r.user_id)),
                     rowHashes,
+                    timingsMs,
                   );
                   csvRowsRejectedByBiostar.push(...rejected);
                   this.logger.warn(
@@ -2084,6 +2135,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             await new Promise((resolve) => setTimeout(resolve, 5000));
           }
         }
+
+        this.commonService.addElapsed(timingsMs, 'csvUpload', uploadStart);
 
         if (skippedRecords.length > 0) {
           const skippedFile = path.join(
@@ -2158,6 +2211,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // its own: once every row carries a `remarks_checked_at`, it selects
       // nothing. Removals from here on are caught by the normal transition,
       // which no longer needs sweeping.
+      const remarksStart = Date.now();
       const sweptThisRun = await this.sweepUncheckedRemarks(jobName);
 
       // Everything owed: removed this run, anything a previous run failed to
@@ -2210,6 +2264,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         );
       }
 
+      this.commonService.addElapsed(timingsMs, 'remarks', remarksStart);
+      const reconcileStart = Date.now();
       let archivedByReconciliation = 0;
       if (seenIdsFromSource.size > 0) {
         const activeStudents = await this.studentRepository.find({
@@ -2235,6 +2291,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         }
       }
 
+      this.commonService.addElapsed(
+        timingsMs,
+        'reconciliation',
+        reconcileStart,
+      );
+
       this.logger.log(
         `[Dasma] Run summary: seenFromSource=${seenIdsFromSource.size}, activeUploadedToBiostar=${totalActiveExported}, archivedSkippedFromCsv=${totalArchivedDisabledExported}, archivedByReconciliation=${archivedByReconciliation}`,
       );
@@ -2257,6 +2319,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       await this.commonService.writeSyncDiagnostics(jobName, {
         direction: 'sql-server-to-postgres-to-biostar',
         schemaEnv: 'dasma',
+        // Wall time per phase (ms). csvUpload includes persistRowHashes.
+        timingsMs: { ...timingsMs, total: Date.now() - runStartMs },
         seenFromSource: seenIdsFromSource.size,
         activeUploadedToBiostar: totalActiveExported,
         archivedSkippedFromCsv: totalArchivedDisabledExported,
@@ -2295,6 +2359,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           // to ~0 once the roster is populated; if it stays high the write-back
           // is not sticking.
           csnPersistedFromBiostar,
+          csnApiLookups,
+          // Which rows went to BioStar this run — changed-only export, by identity.
+          emittedIds: this.commonService.capIds(csvEmittedIds),
           duplicateRowsDropped: csvDuplicateRowsDropped,
           // Rows BioStar rejected inside a partial import. Only these are
           // re-sent next run; the rest of their batch is recorded as delivered.
@@ -2354,6 +2421,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     pool: sql.ConnectionPool,
     hasIsArchivedColumn: boolean,
     batchSize: number,
+    timingsMs: Record<string, number>,
   ) {
     let offset = 0;
     let batchNumber = 0;
@@ -2381,7 +2449,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         `;
       }
 
+      const queryStart = Date.now();
       const result = await pool.request().query(query);
+      this.commonService.addElapsed(timingsMs, 'sourceRead', queryStart);
       if (result.recordset.length === 0) break;
       yield { batchRecords: result.recordset, batchNumber };
       offset += batchSize;

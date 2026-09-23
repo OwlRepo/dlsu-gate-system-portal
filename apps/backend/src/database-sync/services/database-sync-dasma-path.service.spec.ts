@@ -1807,6 +1807,117 @@ describe('DatabaseSyncDasmaPathService', () => {
       ).toEqual([]);
     });
 
+    // Where a run's time goes, read off the file instead of guessed — the
+    // 20k stress round and any slow production run both depend on it.
+    it('reports wall time per phase for the roster push', async () => {
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      await service.executeDatabaseSync('run-1');
+
+      const { timingsMs } = diagnosticsWritten().at(-1);
+      expect(Object.keys(timingsMs).sort()).toEqual([
+        'csnResolve',
+        'csvUpload',
+        'persistRowHashes',
+        'postgresWrite',
+        'reconciliation',
+        'remarks',
+        'sourceRead',
+        'total',
+      ]);
+      for (const v of Object.values(timingsMs)) {
+        expect(Number.isInteger(v) && (v as number) >= 0).toBe(true);
+      }
+    });
+
+    // A person with no card is looked up in BioStar on every run, changed or
+    // not. At 20,000 people that is 20,000 requests per sync, so it is counted.
+    it('counts the BioStar card lookups a card-less roster costs every run', async () => {
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      const [first, second] = diagnosticsWritten();
+      expect(first.csvExport.csnApiLookups).toBe(2);
+      expect(second.csvExport.csnApiLookups).toBe(2);
+    });
+
+    // Changed-only export, pinned by identity: after one row changes, that row
+    // and nothing else goes to BioStar.
+    it('names exactly the rows it sent to BioStar', async () => {
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002', FirstName: 'Maria' }),
+      ];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+      setClock('2026-08-28T08:00:00+08:00');
+      await service.executeDatabaseSync('run-3');
+
+      const [first, second, third] = diagnosticsWritten();
+      expect(second.rowsChanged).toBe(1);
+      expect(third.rowsChanged).toBe(0);
+      expect(first.csvExport.emittedIds).toEqual({
+        ids: ['12100001', '12100002'],
+        truncated: 0,
+      });
+      expect(second.csvExport.emittedIds).toEqual({
+        ids: ['12100002'],
+        truncated: 0,
+      });
+      expect(third.csvExport.emittedIds).toEqual({ ids: [], truncated: 0 });
+    });
+
+    it('reports wall time per phase for the BioStar pull', async () => {
+      biostarPages = [
+        {
+          total: 1,
+          rows: [
+            {
+              user_id: '12100001',
+              name: 'Dela Cruz, Juan',
+              photo_exists: true,
+              card_count: '0',
+              last_modified: '100',
+            },
+          ],
+        },
+      ];
+      biostarDetails = {
+        '12100001': {
+          User: {
+            user_id: '12100001',
+            name: 'Dela Cruz, Juan',
+            photo: 'BASE64PHOTO',
+            disabled: 'false',
+          },
+        },
+      };
+      await service.syncFromBiostar('biostar-1');
+
+      const { timingsMs } = diagnosticsWritten().at(-1);
+      expect(Object.keys(timingsMs).sort()).toEqual([
+        'detailFetch',
+        'listFetch',
+        'postgresWrite',
+        'storedState',
+        'total',
+      ]);
+      for (const v of Object.values(timingsMs)) {
+        expect(Number.isInteger(v) && (v as number) >= 0).toBe(true);
+      }
+    });
+
     it('reports what was exported versus suppressed', async () => {
       sourceRows = [
         sourceRow({ ID: '12100001' }),
