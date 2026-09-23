@@ -273,7 +273,7 @@ Done when the P6 link check finds no dangling relative path.
 
 1. Run `git fetch origin`. If `origin/main` moved, rebase (the branch is not pushed yet) and re-run validation.
 2. Run `git push --set-upstream origin <branch>`.
-3. Open a non-draft PR into `main`. Title and body are in **Spanish and English**, in plain language for a non-technical reviewer, followed by the technical sections from `pr-evidence.md`.
+3. Open a non-draft PR into `main`. Title and body in plain English (English only, per Romeo 2026-09-23) for a non-technical reviewer, followed by the technical sections from `pr-evidence.md`.
 4. Deliver the final report with the status block.
 
 ### Validation and acceptance

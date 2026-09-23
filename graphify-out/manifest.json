@@ -2275,9 +2275,9 @@
     "semantic_hash": "c1b1872d2f8d08864d0c6d7ba81ac00e"
   },
   "AGENTS.md": {
-    "mtime": 1790142197.2853868,
-    "ast_hash": "bd964ebbfb8573af1097658e2be33418",
-    "semantic_hash": "bd964ebbfb8573af1097658e2be33418"
+    "mtime": 1790143154.3826537,
+    "ast_hash": "c641c8ecc314523d3a6f754383320fbe",
+    "semantic_hash": "c641c8ecc314523d3a6f754383320fbe"
   },
   "AI_WORKFLOW.md": {
     "mtime": 1790142197.2855544,
@@ -2415,9 +2415,9 @@
     "semantic_hash": "a811a607ce0953c8e17478718ae177ed"
   },
   "docs/ai/pr-evidence.md": {
-    "mtime": 1790142197.2897882,
-    "ast_hash": "1bca062b6c4831f1c5e1fdc0a82653a6",
-    "semantic_hash": "1bca062b6c4831f1c5e1fdc0a82653a6"
+    "mtime": 1790143154.3819215,
+    "ast_hash": "bc60d34db117f4f2b3d6ee91648e19b0",
+    "semantic_hash": "bc60d34db117f4f2b3d6ee91648e19b0"
   },
   "docs/ai/prompts/bugfix-plan.md": {
     "mtime": 1790142197.289963,
@@ -2465,9 +2465,9 @@
     "semantic_hash": "89f652e00ea27eb186aaeac2ff84af86"
   },
   "docs/plans/chore-claude-workflow-port.md": {
-    "mtime": 1790142197.2914867,
-    "ast_hash": "cd14dab51a66373eecc9c6101642062f",
-    "semantic_hash": "cd14dab51a66373eecc9c6101642062f"
+    "mtime": 1790143154.3823385,
+    "ast_hash": "c0fe84f4c4920e6e9fcb8435e16f9833",
+    "semantic_hash": "c0fe84f4c4920e6e9fcb8435e16f9833"
   },
   "graphify-out/memory/query_20260811_141128_should_database_sync_orchestration_be_split.md": {
     "mtime": 1790140210.4787374,

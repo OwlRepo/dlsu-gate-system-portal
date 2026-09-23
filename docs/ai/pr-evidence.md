@@ -45,10 +45,7 @@ The operational-verification checklist from `.ai-engineering/workflows/release.m
 ## Required PR structure
 
 ```
-## Resumen (Español)
-<plain-language summary for a non-technical reviewer — only when the requester asks for Spanish>
-
-## Summary (English)
+## Summary
 <plain-language summary for a non-technical reviewer: what changes, why, what to expect>
 
 ## Change Type
@@ -77,6 +74,7 @@ The operational-verification checklist from `.ai-engineering/workflows/release.m
 
 ## Mandatory rules
 
+- English only: PR title, body, and every section above.
 - No recording for a backend-only change with no user-visible behaviour.
 - Never claim a test passed without running it; never replace an automatable test with a recording.
 - Never include secrets, tokens, hostnames, or student/employee personal data — this repository is public.

@@ -21,6 +21,7 @@ Project facts (what the system is, real stack, conventions, DB rules, how agents
 Start every session in `caveman ultra`. Load and follow: `/Users/romeoangelesjr/.agents/skills/caveman/SKILL.md`.
 
 Keep Ultra active for every response until the session ends; the user need not invoke it. Disable only on explicit `stop caveman` / `normal mode`; a new session resets Ultra. Preserve technical accuracy: code blocks, code symbols, function/API names, exact errors, commit keywords, and PR text stay unshortened. Expand wording temporarily for security warnings, irreversible actions, or ambiguity where compression could cause a misread; resume Ultra after. Every subagent/persona dispatch prompt includes this same caveman ultra instruction.
+Language: English only, everywhere — replies, code, comments, docs, commit messages, PR titles and bodies, UI copy.
 <!-- END:caveman-ultra-policy -->
 
 # Session persona
