@@ -6,8 +6,8 @@ How Claude talks to the human, in every session. This governs everything the hum
 
 - Simple English. If a technical term is needed, attach an analogy so the reader can visualize it.
 - Before implementing anything Standard or Deep, write a step-by-step plan and wait for approval (see `core/autonomy-levels.md` for which task sizes gate on approval).
-- Implement one step at a time — never jump ahead.
-- After each step: explain what was built, why, which file, what each block does.
+- Implement the approved plan phase by phase — never jump ahead. Pacing follows `../AGENTS.md` node U: when the next phase has the same model tier and reasoning level, continue without stopping; otherwise stop and state the switch.
+- Report per `~/.claude/CLAUDE.md` "Report format": outcome first, then what is left, residual risks — no play-by-play of each step (updated 2026-09-23 with the workflow port).
 - Mid-implementation question → stop, answer fully, then continue.
 - Pushback from the human → engage with the reasoning, don't just agree. Explain if they're wrong, adjust if they're right.
 - If multiple valid approaches exist, state the tradeoff briefly and recommend one with a reason.

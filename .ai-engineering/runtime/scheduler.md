@@ -13,4 +13,4 @@ Failures must be reported.
 
 No cron, runner, or `.github/workflows/` job exists for AI-workflow automation in this repo — `config/autonomous-engineering.yaml` sets `automation: manual`. Do not report this scheduler as active.
 
-The backend's real `database-sync` cron jobs (09:00 / 21:00 Asia/Manila) are unrelated production infrastructure — see `knowledge/architecture.md` — not this scheduler.
+The backend's real `database-sync` cron jobs (09:00 / 21:00 Asia/Manila) are unrelated production infrastructure — see `docs/ai/architecture-manifest.md` — not this scheduler.

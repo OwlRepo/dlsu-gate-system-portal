@@ -20,7 +20,7 @@ stop and request clarification.
 
 ## Project Invariants — never violate
 
-This system controls physical building/gate access. These four hold at all times, regardless of task size or approval level. The *why* for each lives in `knowledge/risk-register.md`; this section is the enforceable rule.
+This system controls physical building/gate access. These four hold at all times, regardless of task size or approval level. The *why* for each lives in `docs/ai/risk-register.md`; this section is the enforceable rule.
 
 1. **`studentMutationLock` is never bypassed.** Concurrent syncs in `apps/backend/src/database-sync/database-sync.service.ts` must not race each other.
 2. **A BioStar deprovision failure must roll back the corresponding Postgres change.** Never leave Postgres and the physical access-control device network out of sync (`delete-users` already does this correctly — do not regress it).

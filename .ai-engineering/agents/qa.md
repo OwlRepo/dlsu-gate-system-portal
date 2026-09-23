@@ -20,7 +20,7 @@ Always invoke gstack's `/qa` (or `/qa-only`) to verify the change across both la
 
 - A red result never marks a step done — fix and re-run until clean.
 - Mandatory for Standard and Deep tasks. For Tiny/Express, apply judgment but say so explicitly rather than silently skipping it.
-- Lean toward running the full gate even on borderline Standard tasks touching `auth`, `reports`, or `database-sync` — see `knowledge/risk-register.md` for why those three carry the most blast radius.
+- Lean toward running the full gate even on borderline Standard tasks touching `auth`, `reports`, or `database-sync` — see `docs/ai/risk-register.md` for why those three carry the most blast radius.
 
 ## Report
 

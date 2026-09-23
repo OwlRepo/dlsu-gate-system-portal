@@ -20,3 +20,19 @@ automation: manual
 approval:
   production: required
   destructive_actions: required
+
+# Autonomous layer state (docs/ai/autonomous-engineering.md). PILOT_FROZEN = plan,
+# implement and open a PR for an authorized work order; never merge, release or
+# deploy. Release autonomy turns on only after a clean pilot PR and Romeo's exact
+# command "ACTIVATE LOW/MEDIUM AUTONOMOUS RELEASE"; record the date and pilot PR here.
+pilot:
+  activation: PILOT_FROZEN
+  release_autonomy: disabled
+  activated_at: null
+  pilot_pr: null
+
+# No CI exists; these gates run locally before every PR (docs/ai/handoff.md).
+local_gates:
+  - npm run tdd:gate
+  - npm run agents:lint
+  - npm run test:scripts

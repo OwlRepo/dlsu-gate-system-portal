@@ -4,7 +4,7 @@ Cleanup, rename, restructure, internal code quality — no intended behavior cha
 
 ## Existing Behavior Proof
 
-Before touching code, document the current behavior that must be preserved: public API surface (functions, methods, exports), component props contract, API response schema, database schema invariants, state shape, error handling behavior. Verify from type definitions, source code, tests, and `knowledge/api-contracts.md` / `knowledge/db-contracts.md`.
+Before touching code, document the current behavior that must be preserved: public API surface (functions, methods, exports), component props contract, API response schema, database schema invariants, state shape, error handling behavior. Verify from type definitions, source code, tests, and `docs/ai/contracts/api-contracts.md` / `docs/ai/contracts/db-contracts.md`.
 
 ## Public API Surface Check
 
@@ -19,7 +19,7 @@ Defaults to Deep when: large-scope structural change, 50+ files affected, core d
 1. State the refactor clearly (extract/rename/move/consolidate/restructure).
 2. Existing Behavior Proof + Public API Surface Check.
 3. Risk boundaries: direct file changes, indirect consumers, tests, docs referencing changed code.
-4. Plan (`templates/plan.md`, Refactor lane) — stop for approval; Deep requires `Deep implementation approved: Yes`.
+4. Plan (`../docs/ai/prompts/refactor-plan.md`) — stop for approval; Deep requires `Deep implementation approved: Yes`.
 5. Implement. No new tests for new behavior (there is none) — existing tests must stay green; add coverage only where it was missing for behavior being moved/renamed.
 6. Verify: typecheck, targeted tests, spot-check the refactored area manually.
 7. Review + QA per `agents/reviewer.md` / `agents/qa.md`.
