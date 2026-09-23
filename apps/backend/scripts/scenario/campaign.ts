@@ -571,15 +571,29 @@ async function check7(): Promise<void> {
     const d = JSON.parse(fs.readFileSync(diagPath, 'utf8'));
     const x = d.csvExport ?? {};
     console.log(`diag: ${path.basename(diagPath)}`);
-    console.log(`  7-0 new build (key present): ${'nameTruncatedForBiostar' in x}`);
+    console.log(
+      `  7-0 new build (key present): ${'nameTruncatedForBiostar' in x}`,
+    );
     console.log(`  rowsEmitted            : ${x.rowsEmitted}`);
-    console.log(`  nameTruncatedForBiostar: ${JSON.stringify(x.nameTruncatedForBiostar?.ids)}`);
-    console.log(`  rowsRejectedByBiostar  : ${JSON.stringify(x.rowsRejectedByBiostar?.ids)}`);
-    console.log(`  partialImportUnparsed  : ${JSON.stringify(x.partialImportUnparsed)}`);
+    console.log(
+      `  nameTruncatedForBiostar: ${JSON.stringify(x.nameTruncatedForBiostar?.ids)}`,
+    );
+    console.log(
+      `  rowsRejectedByBiostar  : ${JSON.stringify(x.rowsRejectedByBiostar?.ids)}`,
+    );
+    console.log(
+      `  partialImportUnparsed  : ${JSON.stringify(x.partialImportUnparsed)}`,
+    );
     console.log(`  csvImport              : ${JSON.stringify(d.csvImport)}`);
   }
   const bs = await openBiostar();
-  for (const id of ['91000020', '91000031', '91000032', '91000030', '9100ABC1']) {
+  for (const id of [
+    '91000020',
+    '91000031',
+    '91000032',
+    '91000030',
+    '9100ABC1',
+  ]) {
     const r = await axios.get(`${bs.base}/api/users/${id}`, {
       headers: bs.headers,
       httpsAgent,
@@ -603,10 +617,22 @@ async function mutate(): Promise<void> {
   console.log('MUTATE — F1..F4\n');
   const pool = await openSource();
   const steps: Array<[string, string, string]> = [
-    ['update', '91000002', `UPDATE ${SOURCE_TABLE} SET Remarks = NULL WHERE ID = '91000002'`],
-    ['update', '91000005', `UPDATE ${SOURCE_TABLE} SET Status = 1 WHERE ID = '91000005'`],
+    [
+      'update',
+      '91000002',
+      `UPDATE ${SOURCE_TABLE} SET Remarks = NULL WHERE ID = '91000002'`,
+    ],
+    [
+      'update',
+      '91000005',
+      `UPDATE ${SOURCE_TABLE} SET Status = 1 WHERE ID = '91000005'`,
+    ],
     ['delete', '91000012', `DELETE FROM ${SOURCE_TABLE} WHERE ID = '91000012'`],
-    ['update', '91000001', `UPDATE ${SOURCE_TABLE} SET LastName = 'Changed' WHERE ID = '91000001'`],
+    [
+      'update',
+      '91000001',
+      `UPDATE ${SOURCE_TABLE} SET LastName = 'Changed' WHERE ID = '91000001'`,
+    ],
   ];
   for (const [op, id, text] of steps) {
     logWrite('mssql', op, [id], text);
@@ -623,8 +649,12 @@ async function check8(): Promise<void> {
     const d = JSON.parse(fs.readFileSync(diagPath, 'utf8'));
     console.log(`diag: ${path.basename(diagPath)}`);
     console.log(`  F4 rowsEmitted          : ${d.csvExport?.rowsEmitted}`);
-    console.log(`  F1 remarks.clearedInPostgres: ${JSON.stringify(d.remarks?.clearedInPostgres?.ids)}`);
-    console.log(`  F3 archivedByReconciliation : ${JSON.stringify(d.archivedByReconciliation)}`);
+    console.log(
+      `  F1 remarks.clearedInPostgres: ${JSON.stringify(d.remarks?.clearedInPostgres?.ids)}`,
+    );
+    console.log(
+      `  F3 archivedByReconciliation : ${JSON.stringify(d.archivedByReconciliation)}`,
+    );
   }
   const bs = await openBiostar();
   const get = async (id: string) => {
@@ -640,7 +670,9 @@ async function check8(): Promise<void> {
   const f = (u2?.user_custom_fields ?? []).find(
     (x: any) => x?.custom_field?.name === 'Remarks',
   );
-  console.log(`  F1 BioStar 91000002 Remarks item: ${JSON.stringify(f ? f.item ?? '(no item key)' : '(no field)')}`);
+  console.log(
+    `  F1 BioStar 91000002 Remarks item: ${JSON.stringify(f ? (f.item ?? '(no item key)') : '(no field)')}`,
+  );
   const u5 = await get('91000005');
   console.log(`  F2 BioStar 91000005 expired: ${JSON.stringify(u5?.expired)}`);
   const pg = await openPostgres();
