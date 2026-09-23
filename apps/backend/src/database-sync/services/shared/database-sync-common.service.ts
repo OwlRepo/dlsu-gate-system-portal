@@ -85,6 +85,72 @@ export class DatabaseSyncCommonService {
   }
 
   /**
+   * The longest name BioStar accepts — measured, not assumed. A live import on
+   * 2026-09-23 rejected a 101-character name with: "User Name can contain only
+   * letters numbers spaces and underscores up to 48 characters."
+   */
+  static readonly BIOSTAR_NAME_MAX_LENGTH = 48;
+
+  /**
+   * The exact name cell sent to BioStar.
+   *
+   * BioStar rejects the whole ROW for an over-long name, and a rejected row
+   * used to hold its entire batch back from being recorded as delivered — so
+   * one long name re-sent up to 800 people on every run. Cutting it here keeps
+   * the person enrolled; `truncated` lets the caller report it so the source
+   * record can be fixed. PostgreSQL keeps the full name: this is only the
+   * BioStar cell.
+   */
+  renderBiostarName(name: string | null | undefined): {
+    value: string;
+    truncated: boolean;
+  } {
+    const cleaned = this.removeSpecialChars((name ?? '').trim());
+    const max = DatabaseSyncCommonService.BIOSTAR_NAME_MAX_LENGTH;
+    if (cleaned.length <= max) return { value: cleaned, truncated: false };
+    return { value: cleaned.slice(0, max).trimEnd(), truncated: true };
+  }
+
+  /**
+   * Reads BioStar's csv_import error file and returns the user_ids it rejected,
+   * or null when the file cannot be trusted to say so.
+   *
+   * Shape measured live on 2026-09-23 (batch manual-21): UTF-8 with a BOM, CRLF
+   * line endings, the header we sent plus a trailing `Error_Description`
+   * column, then one line echoing each rejected row verbatim, `user_id` first.
+   * `CsvRowCollection.rows` carries only file line numbers, so this file is the
+   * one place that names who failed.
+   *
+   * Every check that can fail returns null rather than guessing, because the
+   * caller reads null as "re-send the whole batch" — the safe direction.
+   * Wrongly calling a row rejected costs one retry; wrongly calling it
+   * delivered would stop it ever being sent again.
+   */
+  parseBiostarImportErrorIds(
+    csvText: string | null | undefined,
+    expectedCount: number,
+    emittedIds: Set<string>,
+  ): string[] | null {
+    if (typeof csvText !== 'string') return null;
+    const lines = csvText
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .filter((line) => line.trim() !== '');
+    if (lines.length < 2) return null;
+
+    const firstCell = (line: string) =>
+      line.split(',')[0].trim().replace(/^"|"$/g, '');
+    if (firstCell(lines[0]) !== 'user_id') return null;
+
+    const ids = lines.slice(1).map(firstCell);
+    if (!Number.isInteger(expectedCount) || ids.length !== expectedCount) {
+      return null;
+    }
+    if (ids.some((id) => id === '' || !emittedIds.has(id))) return null;
+    return ids;
+  }
+
+  /**
    * Normalizes userId for CSN/card-like values (hex-to-decimal, truncation).
    * WARNING: Do NOT use for identity keys (ID_Number). This performs lossy
    * transformations that can mutate or collapse distinct IDs. For identity

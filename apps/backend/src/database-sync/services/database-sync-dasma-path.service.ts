@@ -243,12 +243,25 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           const photoExists =
             u.photo_exists === true || u.photo_exists === 'true';
           const cardCount = parseInt(String(u.card_count ?? 0), 10) || 0;
+          const held = stored.get(String(u.user_id));
 
           // Is this person worth the cost of a detail request at all? The
           // answer is what keeps a 20,000-user roster from becoming 20,000
-          // requests, and it is the ONLY thing the list filter decides.
+          // requests.
+          //
+          // Someone whose photo we still hold is always worth considering, even
+          // when BioStar now shows neither photo nor card: that is exactly the
+          // state a deleted photo leaves behind. Without this the deletion was
+          // filtered out before the drift check below could see it — measured
+          // live on 2026-09-23, when user 91000001 kept a 15,768-character
+          // photo in PostgreSQL after it was removed in the BioStar admin app.
+          // Drift still decides whether they are fetched, so a user whose photo
+          // BioStar still shows costs nothing extra.
           const worthFetching =
-            candidateFilterOff || photoExists || cardCount > 0;
+            candidateFilterOff ||
+            photoExists ||
+            cardCount > 0 ||
+            held?.hasPhoto === true;
           if (!worthFetching) return false;
           if (candidateFilterOff || deepPass) {
             pageDeepReads++;
@@ -268,7 +281,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           // that card on purpose — clearing one is destructive to physical
           // access and is not this code's call — so reading it as drift would
           // re-fetch that user on every run for ever with nothing to show.
-          const held = stored.get(String(u.user_id));
           const drifted =
             !held ||
             (photoExists && !held.hasPhoto) ||
@@ -455,7 +467,18 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                   : null;
               const uniqueIdChanged =
                 uniqueId !== null && uniqueId !== (existingUnique || null);
-              const nameChanged = name !== (existingStudent.Name ?? null);
+              // BioStar holds the name WE rendered for it — punctuation stripped
+              // and cut to 48 characters — so compare against that rendering
+              // too. Otherwise every pull reads our own export as a change and
+              // overwrites the full PostgreSQL name with the shortened one.
+              const ourBiostarName = this.commonService.scrubNameTokens(
+                this.commonService.renderBiostarName(existingStudent.Name)
+                  .value,
+              );
+              const nameChanged =
+                name !== null &&
+                name !== (existingStudent.Name ?? null) &&
+                name !== ourBiostarName;
               const isArchivedChanged =
                 existingStudent.isArchived !== isArchivedFromBiostar;
               if (
@@ -1119,6 +1142,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       let csvRowsEmitted = 0;
       let batchesSkippedNoChanges = 0;
       let csnPersistedFromBiostar = 0;
+      /** Rows BioStar rejected inside a partial import; only these are re-sent. */
+      const csvRowsRejectedByBiostar: string[] = [];
+      /** Batches whose partial import could not be reconciled row by row. */
+      const partialImportUnparsed: number[] = [];
+      /** Rows whose BioStar name was cut to the 48-character limit. */
+      const nameTruncatedForBiostar = new Set<string>();
 
       const batchSize = parseInt(process.env.SYNC_BATCH_SIZE) || 500;
       let totalProcessed = 0;
@@ -1457,9 +1486,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           activeRecordsForBiostar.map((record) => {
             // Preserve ID_Number as-is for identity; no hex conversion or truncation
             const userId = (record.ID_Number?.toString() || '').trim();
-            const name = this.commonService.removeSpecialChars(
-              record.Name?.trim() || '',
-            );
+            const rendered = this.commonService.renderBiostarName(record.Name);
+            const name = rendered.value;
+            if (rendered.truncated) nameTruncatedForBiostar.add(userId);
             // Flattened, not quoted-and-preserved.
             //
             // Our writer quotes an embedded newline correctly per RFC 4180,
@@ -1887,11 +1916,11 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               // the hash any earlier would let a rejected batch be treated as
               // delivered and silently skipped on every future run.
               //
-              // Deliberately not done for a partial import: the shape of
-              // CsvRowCollection has never been observed against a real server,
-              // so rather than guess which rows survived, the whole batch is
-              // re-sent next run. That costs one extra export and cannot lose a
-              // row — the opposite trade would risk dropping one permanently.
+              // A partial import is reconciled row by row further down, from the
+              // error file BioStar returns — its shape was measured live on
+              // 2026-09-23. Only when that file cannot be read or trusted is the
+              // whole batch re-sent, which costs an extra export but can never
+              // lose a row.
               await this.persistRowHashes(formattedRecords, rowHashes);
               this.logger.log(
                 `[Batch ${batchNumber}] CSV import successful — all ${formattedRecords.length} changed records processed`,
@@ -1907,6 +1936,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               });
             }
 
+            let downloadedErrorFile: string | null = null;
             if (outcome === 'partial') {
               const failedRows =
                 importResponse.data?.CsvRowCollection?.rows ?? [];
@@ -1943,6 +1973,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                     this.logger.log(
                       `[Batch ${batchNumber}] Error details file downloaded to ${errorFilePath}`,
                     );
+                    downloadedErrorFile = errorFilePath;
                     failedRecordsAll.push({
                       batchNumber,
                       error: `Partial import: ${failedRows.length} rows failed`,
@@ -1982,6 +2013,49 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                     'Partial import reported (code=1) with no CsvRowCollection',
                   importResponse: importResponse.data,
                 });
+              }
+
+              // Record what BioStar DID accept, so only the rejected rows go
+              // again. Its own try: nothing here may throw out to the retry
+              // catch below, which would upload this whole CSV a second time.
+              let rejected: string[] | null = null;
+              try {
+                if (downloadedErrorFile) {
+                  const collection = importResponse.data?.CsvRowCollection;
+                  const lineNumbers = collection?.rows;
+                  const total = Number(collection?.total ?? failedRows.length);
+                  const countsAgree =
+                    !Array.isArray(lineNumbers) || lineNumbers.length === total;
+                  if (countsAgree) {
+                    rejected = this.commonService.parseBiostarImportErrorIds(
+                      fs.readFileSync(downloadedErrorFile, 'utf8'),
+                      total,
+                      new Set(formattedRecords.map((r) => r.user_id)),
+                    );
+                  }
+                }
+                if (rejected) {
+                  const rejectedSet = new Set(rejected);
+                  await this.persistRowHashes(
+                    formattedRecords.filter((r) => !rejectedSet.has(r.user_id)),
+                    rowHashes,
+                  );
+                  csvRowsRejectedByBiostar.push(...rejected);
+                  this.logger.warn(
+                    `[Batch ${batchNumber}] Partial import: ${rejected.length} row(s) rejected by BioStar will be re-sent next run; the other ${formattedRecords.length - rejected.length} are recorded as delivered`,
+                  );
+                }
+              } catch (reconcileError) {
+                rejected = null;
+                this.logger.warn(
+                  `[Batch ${batchNumber}] Could not reconcile the partial import: ${(reconcileError as Error)?.message ?? String(reconcileError)}`,
+                );
+              }
+              if (!rejected) {
+                partialImportUnparsed.push(batchNumber);
+                this.logger.warn(
+                  `[Batch ${batchNumber}] Partial import: BioStar's error file did not identify the rejected rows, so the whole batch will be re-sent next run`,
+                );
               }
             }
             this.logger.log(
@@ -2222,6 +2296,19 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           // is not sticking.
           csnPersistedFromBiostar,
           duplicateRowsDropped: csvDuplicateRowsDropped,
+          // Rows BioStar rejected inside a partial import. Only these are
+          // re-sent next run; the rest of their batch is recorded as delivered.
+          rowsRejectedByBiostar: this.commonService.capIds(
+            csvRowsRejectedByBiostar,
+          ),
+          // Batches whose partial import could not be reconciled row by row,
+          // so the whole batch goes again. Should stay empty.
+          partialImportUnparsed,
+          // Names cut to BioStar's 48-character limit. The person is enrolled;
+          // the source record needs a shorter name.
+          nameTruncatedForBiostar: this.commonService.capIds([
+            ...nameTruncatedForBiostar,
+          ]),
         },
 
         csvImport: csvImportOutcomes,

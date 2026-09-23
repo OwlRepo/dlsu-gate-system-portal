@@ -202,3 +202,120 @@ describe('DatabaseSyncCommonService — activation window', () => {
     });
   });
 });
+
+describe('DatabaseSyncCommonService — BioStar name and import-error parsing', () => {
+  let service: DatabaseSyncCommonService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DatabaseSyncCommonService,
+        { provide: ConfigService, useValue: { get: jest.fn() } },
+      ],
+    }).compile();
+    service = module.get<DatabaseSyncCommonService>(DatabaseSyncCommonService);
+  });
+
+  describe('renderBiostarName', () => {
+    it('keeps a name of exactly 48 characters untouched', () => {
+      const name = 'A'.repeat(48);
+      expect(service.renderBiostarName(name)).toEqual({
+        value: name,
+        truncated: false,
+      });
+    });
+
+    it('cuts a 49-character name to 48 and reports it', () => {
+      expect(service.renderBiostarName('A'.repeat(49))).toEqual({
+        value: 'A'.repeat(48),
+        truncated: true,
+      });
+    });
+
+    it('cuts the name BioStar rejected live to 48', () => {
+      expect(
+        service.renderBiostarName(`${'L'.repeat(50)}, ${'F'.repeat(50)}`),
+      ).toEqual({ value: 'L'.repeat(48), truncated: true });
+    });
+
+    it('leaves no trailing space where the cut lands', () => {
+      expect(
+        service.renderBiostarName(`${'A'.repeat(47)} ${'B'.repeat(10)}`),
+      ).toEqual({ value: 'A'.repeat(47), truncated: true });
+    });
+
+    it('strips punctuation exactly as before', () => {
+      expect(service.renderBiostarName("Pena-Cruz, O'Brien Jr.")).toEqual({
+        value: 'PenaCruz OBrien Jr',
+        truncated: false,
+      });
+    });
+
+    it('treats a missing name as empty', () => {
+      expect(service.renderBiostarName(null)).toEqual({
+        value: '',
+        truncated: false,
+      });
+    });
+  });
+
+  describe('parseBiostarImportErrorIds', () => {
+    const HEADER =
+      '\uFEFFuser_id,name,department,user_title,user_group,Remarks,csn,start_datetime,expiry_datetime,original_campus_entry,Error_Description\r\n';
+
+    // The line BioStar returned for batch manual-21, captured live on 2026-09-23.
+    const MANUAL_21 =
+      HEADER +
+      `91000020,${'L'.repeat(50)} ${'F'.repeat(50)},DLSU,Student,All Users,,,2026-09-22 00:00:00.000,2036-09-23 00:00:00.000,Y,Invalid value is included in User Name. User Name can contain only letters numbers spaces and underscores up to 48 characters.\r\n`;
+
+    // The line BioStar returned for batch manual-7 on 2026-09-10: a row it
+    // mis-split on an embedded newline, so its first cell is not one of ours.
+    const MANUAL_7 =
+      HEADER +
+      '"second line"",,2026-09-09 00:00:00.000,2036-09-10 00:00:00.000,Y",User ID Type Mismatch.\r\n';
+
+    it('names the rejected row from the live capture', () => {
+      expect(
+        service.parseBiostarImportErrorIds(
+          MANUAL_21,
+          1,
+          new Set(['91000019', '91000020', '91000021']),
+        ),
+      ).toEqual(['91000020']);
+    });
+
+    it('refuses a line that is not one of our rows', () => {
+      expect(
+        service.parseBiostarImportErrorIds(MANUAL_7, 1, new Set(['12100001'])),
+      ).toBeNull();
+    });
+
+    it('refuses when the count disagrees with BioStar', () => {
+      expect(
+        service.parseBiostarImportErrorIds(MANUAL_21, 2, new Set(['91000020'])),
+      ).toBeNull();
+    });
+
+    it('refuses a file without the user_id header', () => {
+      expect(
+        service.parseBiostarImportErrorIds(
+          'name,reason\r\nx,y\r\n',
+          1,
+          new Set(['x']),
+        ),
+      ).toBeNull();
+    });
+
+    it('refuses a header-only file', () => {
+      expect(
+        service.parseBiostarImportErrorIds('user_id,name\n', 1, new Set(['a'])),
+      ).toBeNull();
+    });
+
+    it('refuses anything that is not text', () => {
+      expect(
+        service.parseBiostarImportErrorIds(undefined, 1, new Set(['a'])),
+      ).toBeNull();
+    });
+  });
+});

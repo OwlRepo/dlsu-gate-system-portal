@@ -44,8 +44,14 @@ export interface RecordedRequest {
 export interface Scenario {
   /** Response.code returned by csv_import. Default '0'. */
   importCode?: string | number | null;
-  /** Include a CsvRowCollection (the partial-import path). */
-  importFailedRows?: Record<string, unknown>[] | null;
+  /**
+   * Include a CsvRowCollection (the partial-import path). The real server sends
+   * file line numbers as strings, e.g. ['19']; objects remain accepted for the
+   * older fixtures.
+   */
+  importFailedRows?: (string | Record<string, unknown>)[] | null;
+  /** Body served by GET /download/:uri. Default keeps the legacy fixture. */
+  errorCsv?: string;
   /** Omit `filename` from the attachment response. */
   attachmentOmitsFilename?: boolean;
   /** Fail the attachment upload this many times before succeeding. */
@@ -244,7 +250,10 @@ export class FakeBiostarServer {
       const code = this.scenario.importCode ?? '0';
       const body: Record<string, unknown> = { Response: { code } };
       if (this.scenario.importFailedRows) {
-        body.CsvRowCollection = { rows: this.scenario.importFailedRows };
+        body.CsvRowCollection = {
+          total: String(this.scenario.importFailedRows.length),
+          rows: this.scenario.importFailedRows,
+        };
         body.File = { uri: 'errors.csv' };
       }
       // The documented all-failed code arrives with HTTP 404.
@@ -255,7 +264,7 @@ export class FakeBiostarServer {
     // --- error-details download (no /api prefix) -----------------------
     if (method === 'GET' && url.startsWith('/download/')) {
       res.writeHead(200, { 'content-type': 'text/csv' });
-      res.end('user_id,reason\n12100001,rejected\n');
+      res.end(this.scenario.errorCsv ?? 'user_id,reason\n12100001,rejected\n');
       return;
     }
 

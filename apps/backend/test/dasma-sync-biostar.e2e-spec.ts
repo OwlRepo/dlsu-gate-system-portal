@@ -399,7 +399,7 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
     expect((await byId('12100001')).biostar_row_hash).toMatch(/^[0-9a-f]{64}$/);
   }, 120000);
 
-  it('downloads the error details on a partial import and re-sends the batch', async () => {
+  it('downloads the error details on a partial import and re-sends the rejected row', async () => {
     biostar.scenario.importCode = '1';
     biostar.scenario.importFailedRows = [{ user_id: '12100001' }];
 
@@ -413,6 +413,56 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
     await service.executeDatabaseSync('e2e-2');
 
     expect(biostar.countOf('/api/users/csv_import')).toBe(2);
+  }, 120000);
+
+  // Measured live on 2026-09-23: BioStar's error file echoes every rejected
+  // row, user_id first. Only that row may go again; the rest of the batch was
+  // accepted and must be recorded as delivered, or one bad row re-sends the
+  // whole batch on every run for ever.
+  it('records the accepted rows of a partial import and re-sends only the rejected one', async () => {
+    sourceRows = [
+      sourceRow(),
+      sourceRow({ ID: '12100002', FirstName: 'Maria' }),
+    ];
+    biostar.scenario.importCode = '1';
+    biostar.scenario.importFailedRows = ['2'];
+    biostar.scenario.errorCsv =
+      '\uFEFFuser_id,name,Error_Description\r\n12100001,Dela Cruz Juan,Rejected.\r\n';
+
+    await service.executeDatabaseSync('e2e-1');
+
+    expect((await byId('12100001')).biostar_row_hash).toBeNull();
+    expect((await byId('12100002')).biostar_row_hash).not.toBeNull();
+
+    biostar.scenario.importCode = '0';
+    biostar.scenario.importFailedRows = null;
+    biostar.scenario.errorCsv = undefined;
+    await service.executeDatabaseSync('e2e-2');
+
+    const lines = biostar.lastUploadText().trim().split(/\r?\n/);
+    expect(lines).toHaveLength(2);
+    expect(lines[1].startsWith('12100001,')).toBe(true);
+  }, 120000);
+
+  // BioStar's error file cannot always be trusted to name our rows — a live
+  // capture on 2026-09-10 held a line mis-split on an embedded newline. When it
+  // does not, the whole batch goes again: the one direction that cannot lose a
+  // row.
+  it('re-sends the whole batch when the error file does not identify our rows', async () => {
+    sourceRows = [
+      sourceRow(),
+      sourceRow({ ID: '12100002', FirstName: 'Maria' }),
+    ];
+    biostar.scenario.importCode = '1';
+    biostar.scenario.importFailedRows = ['36'];
+    biostar.scenario.errorCsv =
+      '\uFEFFuser_id,name,department,user_title,user_group,Remarks,csn,start_datetime,expiry_datetime,original_campus_entry,Error_Description\r\n' +
+      '"second line"",,2026-09-09 00:00:00.000,2036-09-10 00:00:00.000,Y",User ID Type Mismatch.\r\n';
+
+    await service.executeDatabaseSync('e2e-1');
+
+    expect((await byId('12100001')).biostar_row_hash).toBeNull();
+    expect((await byId('12100002')).biostar_row_hash).toBeNull();
   }, 120000);
 
   // ==================================================================
@@ -581,6 +631,77 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       await service.syncFromBiostar('e2e-del-2');
 
       expect((await byId('12100001'))?.Photo).toBeNull();
+    }, 90000);
+
+    // The same deletion for someone with no card — the common case for a
+    // photo-only record. The cost filter used to drop this user before the
+    // drift check could see that a photo we still hold was gone: measured
+    // live on 2026-09-23, user 91000001 kept its photo in PostgreSQL.
+    it('clears a deleted photo for a user who has no card', async () => {
+      await service.executeDatabaseSync('e2e-1');
+
+      biostar.listPages = [{ total: 1, rows: [listRow({ card_count: '0' })] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        name: 'Dela Cruz, Juan',
+        photo: '/9j/4AAQSkZJRgABAQAAAQ',
+        photo_exists: 'true',
+        disabled: 'false',
+      };
+      await service.syncFromBiostar('e2e-nocard-1');
+      expect((await byId('12100001'))?.Photo).toBe('/9j/4AAQSkZJRgABAQAAAQ');
+
+      biostar.listPages = [
+        {
+          total: 1,
+          rows: [
+            listRow({
+              card_count: '0',
+              photo_exists: false,
+              last_modified: '200',
+            }),
+          ],
+        },
+      ];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        name: 'Dela Cruz, Juan',
+        photo_exists: 'false',
+        disabled: 'false',
+      };
+      await service.syncFromBiostar('e2e-nocard-2');
+      expect((await byId('12100001'))?.Photo).toBeNull();
+
+      // Converged: nothing held, nothing shown, so a third pull looks at nobody.
+      const fetchesBefore = biostar.countOf('/api/users/12100001');
+      await service.syncFromBiostar('e2e-nocard-3');
+      expect(biostar.countOf('/api/users/12100001')).toBe(fetchesBefore);
+    }, 120000);
+
+    // BioStar holds the name we rendered for it — at most 48 characters. A pull
+    // must not read our own export as a change and overwrite the full name
+    // PostgreSQL keeps.
+    it('keeps the full name in PostgreSQL when BioStar holds the shortened one', async () => {
+      sourceRows = [
+        sourceRow({ LastName: 'L'.repeat(50), FirstName: 'F'.repeat(50) }),
+      ];
+      await service.executeDatabaseSync('e2e-1');
+      const full = (await byId('12100001')).Name;
+      expect(full).toBe(`${'L'.repeat(50)}, ${'F'.repeat(50)}`);
+
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        name: 'L'.repeat(48),
+        photo: '/9j/4AAQSkZJRgABAQAAAQ',
+        photo_exists: 'true',
+        disabled: 'false',
+        cards: [{ card_id: '5551234' }],
+      };
+      await service.syncFromBiostar('e2e-longname');
+
+      expect((await byId('12100001')).Name).toBe(full);
+      expect((await byId('12100001')).Photo).toBe('/9j/4AAQSkZJRgABAQAAAQ');
     }, 90000);
 
     // THE WHOLE POINT OF THE PHOTO FIX, proven end to end over real HTTP and

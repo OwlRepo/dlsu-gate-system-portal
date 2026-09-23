@@ -2150,11 +2150,10 @@ describe('DatabaseSyncDasmaPathService', () => {
       // Real backoff inside executeWithRetry, so this genuinely takes seconds.
     }, 20000);
 
-    // A partial import stores no hash at all. The shape of CsvRowCollection
-    // has never been seen from a real server, so rather than guess which rows
-    // survived, the whole batch goes again: one redundant export, versus
-    // permanently dropping a row that BioStar actually rejected.
-    it('re-exports the whole batch after a partial import', async () => {
+    // When BioStar reports a partial import but gives no row detail, nothing
+    // identifies what was accepted, so the whole batch goes again: one
+    // redundant export, versus permanently dropping a row it rejected.
+    it('re-exports the whole batch when BioStar gives no row detail', async () => {
       (axios.post as jest.Mock).mockImplementation(async (url: string) => {
         if (url.includes('/api/attachments')) {
           return { data: { filename: 'fake-upload.csv' } };

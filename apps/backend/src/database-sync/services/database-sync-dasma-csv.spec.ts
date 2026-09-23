@@ -203,6 +203,7 @@ describe('Dasma CSV — rendered bytes and volume', () => {
   let uploadCallCount: number;
   /** Data rows rendered per CSV file, in write order. */
   let rowCountsPerCsv: number[];
+  let common: DatabaseSyncCommonService;
 
   const latestCsvText = () => Array.from(csvText.values()).pop() ?? '';
   const latestLines = () => latestCsvText().split('\n');
@@ -350,7 +351,7 @@ describe('Dasma CSV — rendered bytes and volume', () => {
     }).compile();
 
     service = module.get(DatabaseSyncDasmaPathService);
-    const common = module.get(DatabaseSyncCommonService);
+    common = module.get(DatabaseSyncCommonService);
     jest.spyOn(common, 'logSyncedRecords').mockResolvedValue(undefined);
     jest.spyOn(common, 'cleanupTempFiles').mockResolvedValue(undefined);
     jest.spyOn(common, 'writeSyncDiagnostics').mockResolvedValue(null);
@@ -548,6 +549,20 @@ describe('Dasma CSV — rendered bytes and volume', () => {
     await service.executeDatabaseSync('run-1');
 
     expect(latestLines()[1]).toContain('Nullova Ana Nonesuch');
+  });
+
+  // BioStar rejects a name over 48 characters, and a rejected row used to hold
+  // its whole batch back from being recorded — measured live on 2026-09-23.
+  it("cuts a name to BioStar's 48-character limit and reports it", async () => {
+    sourceRows = [
+      sourceRow({ LastName: 'L'.repeat(50), FirstName: 'F'.repeat(50) }),
+    ];
+    await service.executeDatabaseSync('run-1');
+
+    expect(latestLines()[1].split(',')[1]).toBe('L'.repeat(48));
+    const calls = (common.writeSyncDiagnostics as jest.Mock).mock.calls;
+    const payload = calls[calls.length - 1][1];
+    expect(payload.csvExport.nameTruncatedForBiostar.ids).toEqual(['12100001']);
   });
 
   // ------------------------------------------------------------------
