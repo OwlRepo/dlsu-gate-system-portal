@@ -2466,7 +2466,9 @@ describe('DatabaseSyncDasmaPathService', () => {
       ).length;
     const withCardDirectory = (directory: Map<string, number> | null) =>
       Object.assign(biostarApi, {
-        listUserCardCounts: jest.fn(async () => directory),
+        listUserCardCounts: jest.fn(async () =>
+          directory ? { counts: directory, complete: true } : null,
+        ),
       });
     const importAnswers = (answer: () => Promise<unknown>) => {
       (axios.post as jest.Mock).mockImplementation(async (url: string) => {
