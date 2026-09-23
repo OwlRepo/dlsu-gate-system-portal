@@ -1,0 +1,18 @@
+#!/bin/sh
+# Activated via package.json "prepare": git config core.hooksPath scripts/git-hooks
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$branch" = "main" ]; then
+  echo "pre-commit: direct commits to main are blocked. Create a task branch/worktree: scripts/new-task-worktree.sh <type> <short-name>" >&2
+  exit 1
+fi
+
+if git diff --cached --name-only | grep -qE '^(agents/src/|scripts/generate-agent-defs\.mjs|\.claude/agents/|\.codex/agents/)'; then
+  echo "pre-commit: persona files staged - running agents:lint..."
+  if ! node scripts/generate-agent-defs.mjs --check; then
+    echo "pre-commit: agents:lint failed. Run 'npm run agents:generate' and restage the generated files." >&2
+    exit 1
+  fi
+fi
+
+exit 0

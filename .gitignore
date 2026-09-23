@@ -48,3 +48,6 @@ apps/backend/persistent_uploads/
 
 # Pre-migration database dumps written by scripts/backup-db.mjs
 backups/
+
+# Per-task git worktrees (scripts/new-task-worktree.sh)
+.claude/worktrees/
