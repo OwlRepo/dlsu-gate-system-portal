@@ -1124,6 +1124,32 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       expect(pulls('12100001')).toBe(1);
     }, 90000);
 
+    // Measured 2026-09-23: the skip marker was reset while a pull ran, and the
+    // pull's save at the end wrote the old value back, so the next push
+    // skipped a resend it was asked to make.
+    it('regression: a pull does not write back a skip marker changed while it ran', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      const repo = dataSource.getRepository(BiostarSyncState);
+      await service.syncFromBiostar('e2e-race-0');
+      await repo.update(
+        { schemaKey: 'dasma' },
+        { sourceLastWrite: '2026-09-23T17:37:20.960' },
+      );
+      const realFindOne = repo.findOne.bind(repo);
+      const spy = jest
+        .spyOn(repo, 'findOne')
+        .mockImplementationOnce(async (options) => {
+          const loaded = await realFindOne(options);
+          await repo.update({ schemaKey: 'dasma' }, { sourceLastWrite: null });
+          return loaded;
+        });
+
+      await service.syncFromBiostar('e2e-race-1');
+      spy.mockRestore();
+
+      expect((await state()).sourceLastWrite).toBeNull();
+    }, 90000);
+
     it('re-reads every candidate on the periodic deep pass', async () => {
       service = await makeService({ BIOSTAR_FULL_SYNC_INTERVAL_HOURS: '24' });
       biostar.listPages = [{ total: 1, rows: [listRow()] }];
