@@ -127,7 +127,6 @@ export class BiostarApiService {
         return false;
       }
 
-      this.logger.log(`[Biostar] Cleared ${fieldName} for user ${userId}`);
       return true;
     } catch (error) {
       const message = axios.isAxiosError(error)
@@ -142,7 +141,6 @@ export class BiostarApiService {
 
   async getApiToken(): Promise<{ token: string; sessionId: string }> {
     try {
-      this.logger.log('Attempting to authenticate with BIOSTAR API...');
       const response = await axios.post(
         `${this.apiBaseUrl}/api/login`,
         {
@@ -170,7 +168,6 @@ export class BiostarApiService {
         });
       }
 
-      this.logger.log('Successfully authenticated with BIOSTAR API');
       return { token, sessionId };
     } catch (error) {
       this.logger.error('BIOSTAR API Authentication Failed:', error);
@@ -278,17 +275,21 @@ export class BiostarApiService {
           continue;
         }
 
-        this.logger.warn(
-          `[Dasma Biostar] Detail fetch failed for user ${userId} (attempt ${attempt + 1}/${maxRetries}, status ${status ?? 'none'}):`,
-          axios.isAxiosError(err) ? err.message : err,
-        );
         // Only an explicit "no such user" is an answer. Everything else,
         // retries included, leaves the question open.
-        return {
-          detail: null,
-          status,
-          definitive: status === 400 || status === 404,
-        };
+        const definitive = status === 400 || status === 404;
+        // "No such user" is the ordinary answer for everyone not enrolled yet
+        // — 20,000 new students printed 40,000 lines per sync. Callers count
+        // those; only a failure nobody can explain is worth a line, and one
+        // line, not the two a second logger argument prints.
+        if (!definitive) {
+          this.logger.warn(
+            `[Dasma Biostar] Detail fetch failed for user ${userId} after ${attempt + 1} attempt(s), status ${status ?? 'none'}: ${
+              axios.isAxiosError(err) ? err.message : String(err)
+            }`,
+          );
+        }
+        return { detail: null, status, definitive };
       }
     }
 
@@ -314,6 +315,57 @@ export class BiostarApiService {
       rateLimitTracker,
     );
     return detail;
+  }
+
+  /**
+   * Every BioStar user's card count, read from the user list in one pass.
+   *
+   * The list already carries `card_count`, 500 users a page, so 20,000 users
+   * cost 40 requests instead of one detail request each. Returns null when
+   * the list cannot be read in full — a failed page, or fewer rows than
+   * BioStar says it holds — because a partial map would call a listed user
+   * "not in BioStar", and the caller must then fall back to asking per user.
+   */
+  async listUserCardCounts(
+    token: string,
+    sessionId: string,
+  ): Promise<Map<string, number> | null> {
+    const pageSize = 500;
+    const counts = new Map<string, number>();
+    try {
+      for (let offset = 0; ; offset += pageSize) {
+        const response = await axios.get(`${this.apiBaseUrl}/api/users`, {
+          params: { limit: pageSize, offset, order_by: 'name:true' },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'bs-session-id': sessionId,
+            accept: 'application/json',
+          },
+          httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+          timeout: 120000,
+        });
+        const collection = response.data?.UserCollection;
+        const rows = (collection?.rows ?? []) as Record<string, unknown>[];
+        const total = parseInt(String(collection?.total ?? 0), 10) || 0;
+        for (const row of rows) {
+          if (row.user_id == null) continue;
+          counts.set(
+            String(row.user_id),
+            parseInt(String(row.card_count ?? 0), 10) || 0,
+          );
+        }
+        if (rows.length === 0 || offset + pageSize >= total) {
+          return counts.size >= total ? counts : null;
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[Dasma Biostar] Could not read the user list; card lookups fall back to one request per user: ${
+          (error as Error)?.message ?? String(error)
+        }`,
+      );
+      return null;
+    }
   }
 
   getApiBaseUrl(): string {

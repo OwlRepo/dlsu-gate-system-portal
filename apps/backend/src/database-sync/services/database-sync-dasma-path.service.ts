@@ -28,6 +28,14 @@ const BIOSTAR_DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss.SSS';
 /** Mirrors the same constant in the common service, which owns the stored window. */
 const ACTIVATION_VALIDITY_YEARS = 10;
 
+/**
+ * Upper bound on one csv_import request. BioStar answers code 4 on its own
+ * when an import outlives its request timeout; this bound is only for a
+ * server that never answers, which would otherwise hold studentMutationLock
+ * for good.
+ */
+const CSV_IMPORT_TIMEOUT_MS = 10 * 60 * 1000;
+
 @Injectable()
 export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   private readonly logger = new Logger(DatabaseSyncDasmaPathService.name);
@@ -776,7 +784,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
    *
    * Never throws: a sweep is a repair job, not a reason to fail a roster sync.
    */
-  private async sweepUncheckedRemarks(jobName: string): Promise<number> {
+  private async sweepUncheckedRemarks(
+    jobName: string,
+    cardDirectory: Map<string, number> | null,
+  ): Promise<number> {
     const SWEEP_SIZE = 500;
     try {
       const unchecked = await this.studentRepository.find({
@@ -786,12 +797,33 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       });
       if (unchecked.length === 0) return 0;
 
-      const { token, sessionId } = await this.biostarApiService.getApiToken();
+      const checkedAt = new Date();
+      // Someone BioStar did not hold at the start of this run has no remark
+      // there to be stale — including everyone this run just created. The
+      // user list already answered for them; stamp them in one statement.
+      const notInBiostar = new Set(
+        cardDirectory
+          ? unchecked
+              .map((s) => s.ID_Number)
+              .filter((id) => !cardDirectory.has(id))
+          : [],
+      );
+      if (notInBiostar.size > 0) {
+        await this.studentRepository.update(
+          { ID_Number: In([...notInBiostar]) },
+          { remarks_checked_at: checkedAt },
+        );
+      }
+
+      let session: { token: string; sessionId: string } | null = null;
       const rateLimitTracker = { count: 0 };
       const flagged: string[] = [];
-      const checkedAt = new Date();
 
-      for (const student of unchecked) {
+      for (const student of unchecked.filter(
+        (s) => !notInBiostar.has(s.ID_Number),
+      )) {
+        session ??= await this.biostarApiService.getApiToken();
+        const { token, sessionId } = session;
         const { detail, definitive } =
           await this.biostarApiService.fetchBiostarUserDetail(
             student.ID_Number,
@@ -914,27 +946,31 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
    * in the BioStar UI. A cell is only ever left blank when we positively know
    * there is no card to lose.
    *
-   * The lookup is unconditional. It used to sit behind
-   * `DASMA_CSV_FETCH_CARD_FROM_BIOSTAR`, which existed to avoid one GET per
-   * card-less student per run — but the card is written to `Unique_ID` the
-   * first time it is found, so that cost was already one-time. Switching the
-   * lookup off left only bad options: send a blank and destroy cards, or hold
-   * the row back and stop updating those people at all. A flag whose only safe
-   * value is "on" is a trap, so it is gone.
+   * A card-less student used to cost one GET on EVERY run, because only a
+   * found card is written back — 20,000 requests per sync at DLSU's size,
+   * measured on 2026-09-23. The BioStar user list answers the same question
+   * for everyone at once (`card_count`), so the per-user GET now happens only
+   * for a listed user who holds a card we have not stored. A blank cell still
+   * goes out only when we positively know there is no card to lose.
    */
   private async resolveDasmaCsnForCsvRow(
     userId: string,
     existing: Student | undefined,
-    token: string,
-    sessionId: string,
+    session: () => Promise<{ token: string; sessionId: string }>,
     rateLimitTracker: { count: number },
-  ): Promise<{ csn: string; unresolved: boolean; fetched: boolean }> {
+    cardDirectory: Map<string, number> | null,
+  ): Promise<{
+    csn: string;
+    unresolved: boolean;
+    fetched: boolean;
+    lookedUp: boolean;
+  }> {
     return this.resolveCsn(
       userId,
       existing,
-      token,
-      sessionId,
+      session,
       rateLimitTracker,
+      cardDirectory,
     );
   }
 
@@ -1009,17 +1045,49 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     this.commonService.addElapsed(timingsMs, 'persistRowHashes', hashStart);
   }
 
+  /** Reads the run's card directory; null means "ask per user", as before. */
+  private async loadCardDirectory(): Promise<Map<string, number> | null> {
+    try {
+      const { token, sessionId } = await this.biostarApiService.getApiToken();
+      return await this.biostarApiService.listUserCardCounts(token, sessionId);
+    } catch (error) {
+      this.logger.warn(
+        `[Dasma] BioStar user list unavailable; card lookups fall back to one request per user: ${
+          (error as Error)?.message ?? String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
   private async resolveCsn(
     userId: string,
     existing: Student | undefined,
-    token: string,
-    sessionId: string,
+    session: () => Promise<{ token: string; sessionId: string }>,
     rateLimitTracker: { count: number },
-  ): Promise<{ csn: string; unresolved: boolean; fetched: boolean }> {
+    cardDirectory: Map<string, number> | null,
+  ): Promise<{
+    csn: string;
+    unresolved: boolean;
+    fetched: boolean;
+    lookedUp: boolean;
+  }> {
     const fromDb = this.normalizeUniqueIdValue(existing?.Unique_ID);
     if (fromDb) {
-      return { csn: fromDb, unresolved: false, fetched: false };
+      return {
+        csn: fromDb,
+        unresolved: false,
+        fetched: false,
+        lookedUp: false,
+      };
     }
+    // The list says this person is not in BioStar, or holds no card there.
+    // Either way an empty `csn` cannot blank a card, so there is nothing to
+    // ask. Only a listed user with a card we have not stored needs a lookup.
+    if (cardDirectory && (cardDirectory.get(userId) ?? 0) === 0) {
+      return { csn: '', unresolved: false, fetched: false, lookedUp: false };
+    }
+    const { token, sessionId } = await session();
     const { detail, definitive } =
       await this.biostarApiService.fetchBiostarUserDetail(
         userId,
@@ -1034,7 +1102,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // dangerous: under `import_option: 2` a blank cell is a candidate to
       // blank a card the person really holds, and we do not know whether they
       // hold one. The caller drops the row and BioStar keeps what it has.
-      return { csn: '', unresolved: true, fetched: false };
+      return { csn: '', unresolved: true, fetched: false, lookedUp: true };
     }
     if (!detail) {
       // A definitive 400/404: BioStar looked and has never heard of this
@@ -1044,13 +1112,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // enrolment — they could not be created because they were not already
       // there. Observed live 2026-09-10: 13 of 14 new students silently
       // dropped.
-      return { csn: '', unresolved: false, fetched: false };
+      return { csn: '', unresolved: false, fetched: false, lookedUp: true };
     }
     const card = this.extractBiostarCardValue(
       detail as Record<string, unknown>,
     );
     const csn = this.normalizeUniqueIdValue(card) ?? '';
-    return { csn, unresolved: false, fetched: csn !== '' };
+    return { csn, unresolved: false, fetched: csn !== '', lookedUp: true };
   }
 
   private async getOrCreateBiostarSyncState(): Promise<BiostarSyncState> {
@@ -1156,9 +1224,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       const csvImportOutcomes: Array<{
         batchNumber: number;
         responseCode: string | null;
-        outcome: 'success' | 'partial' | 'failed';
+        outcome: 'success' | 'partial' | 'failed' | 'timeout';
         partialFailureRows: number;
         retriesUsed: number;
+        /** Wall time of the csv_import request itself. */
+        durationMs: number;
+        /** BioStar's task id when it answered "still importing" (code 4). */
+        taskId: string | null;
       }> = [];
 
       // Evidence for the deferred changed-only-export decision: how much of
@@ -1172,7 +1244,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       let csvRowsEmitted = 0;
       let batchesSkippedNoChanges = 0;
       let csnPersistedFromBiostar = 0;
-      /** Rows sent to BioStar for a card lookup — every card-less row, every run. */
+      /** Card lookups actually sent to BioStar this run. */
       let csnApiLookups = 0;
       /** user_ids actually sent to BioStar this run (changed hash only). */
       const csvEmittedIds: string[] = [];
@@ -1182,8 +1254,32 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       const partialImportUnparsed: number[] = [];
       /** Rows whose BioStar name was cut to the 48-character limit. */
       const nameTruncatedForBiostar = new Set<string>();
+      /**
+       * Set once BioStar answers "still importing" (code 4) or an import's
+       * outcome is unknown. From then on this run sends BioStar nothing more:
+       * a second import on top of an unfinished one is what piled work onto
+       * the sandbox on 2026-09-23. Those rows keep no hash, so they go next run.
+       */
+      let biostarUploadsHalted: {
+        afterBatch: number;
+        taskId: string | null;
+      } | null = null;
+      /** Changed rows held back because uploads were halted this run. */
+      let rowsDeferredAfterHalt = 0;
 
-      const batchSize = parseInt(process.env.SYNC_BATCH_SIZE) || 500;
+      // One source page becomes one csv_import. A 746-row import got code 4
+      // ("still importing") on 2026-09-23, so the page is capped. 100 is the
+      // only size Suprema documents (bulk edit); each import's durationMs is
+      // in the diagnostics so the cap is tuned from data, not guessed.
+      const importMaxRows = Math.max(
+        1,
+        parseInt(this.configService.get('BIOSTAR_IMPORT_MAX_ROWS') ?? '', 10) ||
+          100,
+      );
+      const batchSize = Math.min(
+        parseInt(process.env.SYNC_BATCH_SIZE) || 500,
+        importMaxRows,
+      );
       let totalProcessed = 0;
       let totalSkipped = 0;
       let totalEnabled = 0;
@@ -1212,6 +1308,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
       dayjs.extend(utc);
       dayjs.extend(timezone);
+
+      // Who BioStar holds and how many cards each has, read once per run.
+      // Replaces a detail request per card-less row (about 6 a second; 20,000
+      // per sync at DLSU's size). null = the list could not be read in full,
+      // and every lookup below falls back to asking per user, as before.
+      const cardDirectory = await this.loadCardDirectory();
 
       for await (const { batchRecords, batchNumber } of this.fetchBatches(
         pool,
@@ -1465,9 +1567,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             );
           }
         }
-        this.logger.log(
-          `[Batch ${batchNumber}] Synced ${toCreate.length + toUpdate.length} records (${batchRecordsWithPhoto.length - (toCreate.length + toUpdate.length)} unchanged)`,
-        );
         rowsChanged += toCreate.length + toUpdate.length;
         rowsUnchanged +=
           batchRecordsWithPhoto.length - (toCreate.length + toUpdate.length);
@@ -1515,8 +1614,14 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           ) || 8,
         );
         const csnStart = Date.now();
-        const { token: csnToken, sessionId: csnSessionId } =
-          await this.biostarApiService.getApiToken();
+        // Logged in only if a row in this batch really needs a lookup; with the
+        // card directory most batches need none.
+        let csnSessionPromise: Promise<{
+          token: string;
+          sessionId: string;
+        }> | null = null;
+        const csnSession = () =>
+          (csnSessionPromise ??= this.biostarApiService.getApiToken());
         const csnRateLimitTracker = { count: 0 };
 
         type DasmaCsvRowInput = {
@@ -1559,9 +1664,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 reasons: validationErrors,
                 timestamp: new Date().toISOString(),
               });
-              this.logger.warn(
-                `[Batch ${batchNumber}] Skipping record with validation errors - ID: ${record.ID_Number}, Errors: ${validationErrors.join(', ')}`,
-              );
               return null;
             }
 
@@ -1658,7 +1760,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           (row): row is DasmaCsvRowInput => row !== null,
         );
 
-        let csnFilledFromApi = 0;
         /** Cards learned from BioStar this batch, to write back once. */
         const csnToPersist: { userId: string; csn: string }[] = [];
         const resolvedRows = await this.commonService.runWithConcurrency(
@@ -1671,21 +1772,15 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             row: Record<string, string>;
             unresolved: boolean;
           }> => {
-            const hadDbCsn = !!this.normalizeUniqueIdValue(
-              existingMap.get(userId)?.Unique_ID,
-            );
-            if (!hadDbCsn) csnApiLookups++;
-            const { csn, unresolved, fetched } =
+            const { csn, unresolved, fetched, lookedUp } =
               await this.resolveDasmaCsnForCsvRow(
                 userId,
                 existingMap.get(userId),
-                csnToken,
-                csnSessionId,
+                csnSession,
                 csnRateLimitTracker,
+                cardDirectory,
               );
-            if (!hadDbCsn && csn) {
-              csnFilledFromApi++;
-            }
+            if (lookedUp) csnApiLookups++;
             if (fetched) {
               csnToPersist.push({ userId, csn });
             }
@@ -1778,6 +1873,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           if (unchanged) csvRowsSuppressed++;
           return !unchanged;
         });
+        // BioStar is still working on an earlier import this run. Sending more
+        // would stack imports on the server; these rows keep no hash and go on
+        // the next run. PostgreSQL is already up to date for them.
+        if (biostarUploadsHalted && formattedRecords.length > 0) {
+          rowsDeferredAfterHalt += formattedRecords.length;
+          continue;
+        }
         csvRowsEmitted += formattedRecords.length;
         csvEmittedIds.push(...formattedRecords.map((r) => r.user_id));
 
@@ -1787,22 +1889,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         // always emits the header line and the file is therefore never empty.
         if (formattedRecords.length === 0) {
           batchesSkippedNoChanges++;
-          this.logger.log(
-            `[Batch ${batchNumber}] No changed rows (${csvRowsSuppressed} unchanged so far); skipping CSV upload entirely.`,
-          );
           continue;
         }
 
-        if (csnFilledFromApi > 0) {
-          this.logger.log(
-            `[Batch ${batchNumber}] Dasma CSV CSN: filledFromBiostarApi=${csnFilledFromApi}`,
-          );
-        }
-
         await csvWriter.writeRecords(formattedRecords);
-        this.logger.log(
-          `[Batch ${batchNumber}] CSV file created at ${csvFilePath}`,
-        );
 
         let csvFileReady = false;
         for (let i = 0; i < 10; i++) {
@@ -1846,14 +1936,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           continue;
         }
 
-        await this.commonService.logSyncedRecords(
-          formattedRecords,
-          jobName,
-          true,
-        );
-
         const uploadStart = Date.now();
         let retries = 3;
+        // Once the import request has gone out, its outcome is BioStar's. A
+        // retry in the same run would start a second import on top of the
+        // first, so any error after this point stops uploads instead.
+        let importSent = false;
+        let importStart = 0;
         while (retries > 0) {
           try {
             const { token, sessionId } =
@@ -1861,9 +1950,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             const apiBaseUrl = this.biostarApiService.getApiBaseUrl();
             const uploadFormData = new FormData();
             uploadFormData.append('file', fs.createReadStream(csvFilePath));
-            this.logger.log(
-              `[Batch ${batchNumber}] Uploading CSV file to attachments...`,
-            );
             const uploadResponse = await axios.post(
               `${apiBaseUrl}/api/attachments`,
               uploadFormData,
@@ -1885,9 +1971,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               throw new Error('Failed to get filename from upload response');
             }
             const uploadedFileName = uploadResponse.data.filename;
-            this.logger.log(
-              `[Batch ${batchNumber}] File uploaded successfully as: ${uploadedFileName}`,
-            );
 
             const firstLine = fs
               .readFileSync(csvFilePath, 'utf8')
@@ -1913,7 +1996,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 columns: headers,
               },
             };
-            this.logger.log(`[Batch ${batchNumber}] Importing CSV file...`);
+            importSent = true;
+            importStart = Date.now();
             const importResponse = await axios.post(
               `${apiBaseUrl}/api/users/csv_import`,
               importPayload,
@@ -1926,8 +2010,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 httpsAgent: new https.Agent({
                   rejectUnauthorized: false,
                 }),
+                timeout: CSV_IMPORT_TIMEOUT_MS,
               },
             );
+            const importDurationMs = Date.now() - importStart;
             // Suprema documents Response.code for bulk operations as:
             //   "0" = all edits were successful
             //   "1" = partially successful
@@ -1942,12 +2028,19 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               responseCode === undefined || responseCode === null
                 ? null
                 : String(responseCode);
-            const outcome: 'success' | 'partial' | 'failed' =
+            // "4" is not in Suprema's public docs. Measured live on 2026-09-23:
+            // "Synced Web Request is not respond in timeout period", with a
+            // task_id, and BioStar kept importing every row afterwards.
+            const outcome: 'success' | 'partial' | 'failed' | 'timeout' =
               codeText === '0'
                 ? 'success'
                 : codeText === '1'
                   ? 'partial'
-                  : 'failed';
+                  : codeText === '4'
+                    ? 'timeout'
+                    : 'failed';
+            const taskIdRaw = importResponse.data?.Response?.task_id;
+            const taskId = taskIdRaw == null ? null : String(taskIdRaw);
             csvImportOutcomes.push({
               batchNumber,
               responseCode: responseCode ?? null,
@@ -1955,6 +2048,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               partialFailureRows:
                 importResponse.data?.CsvRowCollection?.rows?.length ?? 0,
               retriesUsed: 3 - retries,
+              durationMs: importDurationMs,
+              taskId,
             });
 
             if (outcome === 'success') {
@@ -1972,8 +2067,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 rowHashes,
                 timingsMs,
               );
-              this.logger.log(
-                `[Batch ${batchNumber}] CSV import successful — all ${formattedRecords.length} changed records processed`,
+            } else if (outcome === 'timeout') {
+              biostarUploadsHalted = { afterBatch: batchNumber, taskId };
+              this.logger.warn(
+                `[Batch ${batchNumber}] BioStar is still importing (Response.code=4, task_id=${taskId ?? '(none)'}); no more uploads this run — the remaining changed rows go next run`,
               );
             } else if (outcome === 'failed') {
               this.logger.error(
@@ -2118,6 +2215,38 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             const errorMessage = axios.isAxiosError(error)
               ? `API Error: ${error.response?.status} - ${error.response?.data?.message || error.message}`
               : `Upload Error: ${error.message}`;
+            if (importSent) {
+              // Code 8 is Suprema's documented "every row failed", delivered as
+              // HTTP 404: BioStar is done and a repeat would fail the same way.
+              // Anything else leaves the import possibly still running.
+              const allFailed =
+                axios.isAxiosError(error) &&
+                String(error.response?.data?.Response?.code ?? '') === '8';
+              csvImportOutcomes.push({
+                batchNumber,
+                responseCode: allFailed ? '8' : null,
+                outcome: allFailed ? 'failed' : 'timeout',
+                partialFailureRows: 0,
+                retriesUsed: 2 - retries,
+                durationMs: Date.now() - importStart,
+                taskId: null,
+              });
+              failedRecordsAll.push({
+                batchNumber,
+                error: 'csv_import did not complete',
+                details: errorMessage,
+              });
+              if (!allFailed) {
+                biostarUploadsHalted = {
+                  afterBatch: batchNumber,
+                  taskId: null,
+                };
+              }
+              this.logger.warn(
+                `[Batch ${batchNumber}] csv_import ${allFailed ? 'failed for every row (Response.code=8)' : `outcome unknown (${errorMessage}); no more uploads this run`} — these rows go next run`,
+              );
+              break;
+            }
             if (retries === 0) {
               this.logger.warn(
                 `[Batch ${batchNumber}] Final upload attempt failed: ${errorMessage}`,
@@ -2192,7 +2321,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           formattedRecords[i] = null;
         }
 
-        this.commonService.logMemoryUsage(batchNumber);
         await this.commonService.cleanupTempFiles(tempDir);
         if (global.gc) {
           global.gc();
@@ -2212,7 +2340,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       // nothing. Removals from here on are caught by the normal transition,
       // which no longer needs sweeping.
       const remarksStart = Date.now();
-      const sweptThisRun = await this.sweepUncheckedRemarks(jobName);
+      const sweptThisRun = await this.sweepUncheckedRemarks(
+        jobName,
+        cardDirectory,
+      );
 
       // Everything owed: removed this run, anything a previous run failed to
       // clear, and anything the reconciliation or sweep just flagged. Retrying
@@ -2362,6 +2493,12 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           csnApiLookups,
           // Which rows went to BioStar this run — changed-only export, by identity.
           emittedIds: this.commonService.capIds(csvEmittedIds),
+          // Rows per csv_import this run (BIOSTAR_IMPORT_MAX_ROWS).
+          importMaxRows,
+          // Set when BioStar answered "still importing" or an import's outcome
+          // was unknown; nothing more was sent this run. Null on a clean run.
+          biostarUploadsHalted,
+          rowsDeferredAfterHalt,
           duplicateRowsDropped: csvDuplicateRowsDropped,
           // Rows BioStar rejected inside a partial import. Only these are
           // re-sent next run; the rest of their batch is recorded as delivered.
@@ -2478,12 +2615,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     // build. A dropped row is a person who silently stops being updated at the
     // gate, which is worse than a stray placeholder in their name. Keep the
     // unclean name and say so.
+    // Reported by ID in the diagnostics (`placeholderNameKept`), not per row.
     const nameParts = cleanParts.length > 0 ? cleanParts : rawParts;
-    if (cleanParts.length === 0 && rawParts.length > 0) {
-      this.logger.warn(
-        `[Dasma] Every name part is a placeholder for ID ${record.ID}; keeping the source name rather than dropping the record`,
-      );
-    }
 
     let fullName = '';
     if (nameParts.length > 0) {

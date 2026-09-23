@@ -1096,6 +1096,26 @@ async function stressCheck(): Promise<void> {
     );
     console.log(`push.sweptThisRun=${d.remarks?.sweptThisRun}`);
     console.log(`push.csnApiLookups=${x.csnApiLookups}`);
+    console.log(`push.importMaxRows=${x.importMaxRows}`);
+    console.log(
+      `push.biostarUploadsHalted=${JSON.stringify(x.biostarUploadsHalted)}`,
+    );
+    console.log(`push.rowsDeferredAfterHalt=${x.rowsDeferredAfterHalt}`);
+    const durations = (d.csvImport ?? []).map(
+      (b: { durationMs?: number }) => b.durationMs ?? 0,
+    );
+    console.log(
+      `push.importDurationMs=${JSON.stringify({
+        count: durations.length,
+        max: Math.max(0, ...durations),
+        mean: durations.length
+          ? Math.round(
+              durations.reduce((a: number, b: number) => a + b, 0) /
+                durations.length,
+            )
+          : 0,
+      })}`,
+    );
     console.log(`push.timingsMs=${JSON.stringify(d.timingsMs)}`);
   }
   if (pull) {
