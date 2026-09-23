@@ -1137,6 +1137,24 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       expect((await byId('12100001')).Photo).toBe('/9j/NEW');
     }, 90000);
 
+    // Measured 2026-09-23: a pull failed at offset 9,000 and the next one
+    // resumed there, never visiting the page of a user whose photo the audit
+    // log named. Closing the window on that run would lose the photo.
+    it('regression: a resumed pull leaves the audit window open for users it never visited', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      await service.syncFromBiostar('e2e-resume-0');
+      const repo = dataSource.getRepository(BiostarSyncState);
+      const windowStart = new Date('2026-09-23T10:00:00.000Z');
+      await repo.update(
+        { schemaKey: 'dasma' },
+        { lastProcessedOffset: 500, lastAuditAt: windowStart },
+      );
+
+      await service.syncFromBiostar('e2e-resume-1');
+
+      expect((await state()).lastAuditAt).toEqual(windowStart);
+    }, 90000);
+
     it('regression: does not re-read every photo holder once a day unless configured', async () => {
       biostar.listPages = [{ total: 1, rows: [listRow()] }];
       biostar.userDetails['12100001'] = {

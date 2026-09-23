@@ -206,6 +206,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     /** Users re-read because BioStar's list row disagreed with PostgreSQL. */
     let totalDriftReads = 0;
     let offset = state.lastProcessedOffset ?? 0;
+    // A run resumed past the start never visits the earlier pages, so it
+    // cannot act on audit-named users there and must not close the window.
+    const walksWholeList = offset === 0;
 
     this.logger.log(
       `[Dasma Biostar] Starting sync: deepPass=${deepPass}, group=${listGroupId || 'all'}, candidateFilter=${candidateFilterOff ? 'off' : 'photo-or-card'}, lastModifiedCursor=${state.lastModifiedCursor ?? 'none'}, lastSuccessAt=${state.lastSuccessAt?.toISOString() ?? 'never'}, lastFullSyncAt=${state.lastFullSyncAt?.toISOString() ?? 'never'}`,
@@ -636,9 +639,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         state.lastSuccessAt = new Date();
         state.lastError = null;
         state.lastModifiedCursor = maxLastModified;
-        // Advance the audit window only when it was read, or never existed:
-        // a failed read leaves the gap for the next run to cover.
-        if (auditPhotoChanges !== null || !state.lastAuditAt) {
+        // Advance the audit window only when it was read, or never existed,
+        // and every page was visited: a failed read or a resumed walk leaves
+        // the gap for the next full run to cover.
+        if (
+          walksWholeList &&
+          (auditPhotoChanges !== null || !state.lastAuditAt)
+        ) {
           state.lastAuditAt = auditUntil;
         }
         if (deepPass) {
