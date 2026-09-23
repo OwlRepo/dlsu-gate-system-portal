@@ -2544,6 +2544,7 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     it('edge: looks up only a listed user whose card PostgreSQL does not hold', async () => {
+      CONFIG.BIOSTAR_CARD_DIRECTORY_MIN_ROWS = '0';
       withCardDirectory(
         new Map([
           ['12100001', 1],
@@ -2581,6 +2582,7 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     it('regression: a roster BioStar does not hold yet costs no per-user request', async () => {
+      CONFIG.BIOSTAR_CARD_DIRECTORY_MIN_ROWS = '0';
       withCardDirectory(new Map());
       sourceRows = threeRows();
       setClock('2026-08-26T08:00:00+08:00');
@@ -2593,6 +2595,7 @@ describe('DatabaseSyncDasmaPathService', () => {
     });
 
     it('regression: the remark sweep stamps a user BioStar does not hold without asking', async () => {
+      CONFIG.BIOSTAR_CARD_DIRECTORY_MIN_ROWS = '0';
       withCardDirectory(new Map());
       sourceRows = [sourceRow({ ID: '12100001' })];
       setClock('2026-08-26T08:00:00+08:00');
@@ -2614,8 +2617,8 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       await service.executeDatabaseSync('run-1');
 
-      // One login for the user list, one per upload; none for card lookups.
-      expect(biostarApi.getApiToken).toHaveBeenCalledTimes(4);
+      // One login for the whole push: uploads reuse it, card lookups too.
+      expect(biostarApi.getApiToken).toHaveBeenCalledTimes(1);
     });
 
     it('happy: records how long each import took and the rows-per-import cap', async () => {
@@ -2632,6 +2635,192 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(Number.isInteger(d.csvImport[0].durationMs)).toBe(true);
       expect(d.csvExport.importMaxRows).toBe(100);
       expect(d.csvExport.biostarUploadsHalted).toBeNull();
+    });
+  });
+
+  // =====================================================================
+  // Fewer calls per sync — measured on the 2026-09-23 stress run
+  // =====================================================================
+  describe('Fewer calls per sync', () => {
+    const queriesSeen: string[] = [];
+    const poolAnswering = (lastWrite: string | null) => ({
+      request: () => {
+        const req = {
+          input: () => req,
+          query: jest.fn(async (text: string) => {
+            queriesSeen.push(text);
+            if (text.includes('dm_db_index_usage_stats')) {
+              return { recordset: [{ lastWrite }] };
+            }
+            if (text.includes('sys.columns')) {
+              return { recordset: [{ count: 1 }] };
+            }
+            const offset = Number(text.match(/OFFSET (\d+) ROWS/)?.[1] ?? 0);
+            const size = Number(
+              text.match(/FETCH NEXT (\d+) ROWS/)?.[1] ?? sourceRows.length,
+            );
+            return {
+              recordset: sourceRows
+                .slice(offset, offset + size)
+                .map((row) => ({ ...row })),
+            };
+          }),
+        };
+        return req;
+      },
+      close: jest.fn(async () => undefined),
+    });
+    const sourceReads = () =>
+      queriesSeen.filter((q) => q.includes('FROM dbo.FakeRoster')).length;
+    const importCalls = () =>
+      (axios.post as jest.Mock).mock.calls.filter(([url]) =>
+        String(url).includes('/api/users/csv_import'),
+      ).length;
+    const diag = () =>
+      (fsMock.writeFileSync as jest.Mock).mock.calls
+        .filter(([p]) => String(p).includes('diagnostics'))
+        .map(([, body]) => JSON.parse(String(body)))
+        .at(-1);
+    const cursor = () =>
+      biostarState as BiostarSyncState & { sourceLastWrite?: string | null };
+    const threeRows = () => [
+      sourceRow({ ID: '12100001' }),
+      sourceRow({ ID: '12100002' }),
+      sourceRow({ ID: '12100003' }),
+    ];
+    const WRITE = '2026-09-23T14:01:25.497';
+
+    beforeEach(() => {
+      queriesSeen.length = 0;
+    });
+
+    it('error: reads the source when SQL Server cannot say when it was last written', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(sourceReads()).toBe(1);
+      expect(latestCsv().map((r) => r.user_id)).toEqual(['12100001']);
+    });
+
+    it('edge: pushes while a remark clear is pending even if the source is unchanged', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(WRITE));
+      cursor().sourceLastWrite = WRITE;
+      studentRepo.rows.push({
+        ID_Number: '12100009',
+        Remarks: null,
+        remarks_clear_pending: true,
+        isArchived: false,
+        Campus_Entry: 'Y',
+      } as Student);
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(sourceReads()).toBe(1);
+    });
+
+    it('regression: skips the push when the source was not written since the last clean sync', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(WRITE));
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      expect(cursor().sourceLastWrite).toBe(WRITE);
+
+      queriesSeen.length = 0;
+      const importsBefore = importCalls();
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(sourceReads()).toBe(0);
+      expect(importCalls()).toBe(importsBefore);
+      expect(diag().skippedUnchangedSource).toBe(true);
+    });
+
+    it('regression: forgets the source snapshot after a run that halted uploads', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(WRITE));
+      cursor().sourceLastWrite = 'an older write';
+      (axios.post as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/api/attachments')) {
+          return { data: { filename: 'fake-upload.csv' } };
+        }
+        if (url.includes('/api/users/csv_import')) {
+          return { data: { Response: { code: '4', task_id: '1470' } } };
+        }
+        return { data: {} };
+      });
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(cursor().sourceLastWrite ?? null).toBeNull();
+    });
+
+    it('regression: reads the whole source in one query, then imports it in pages', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
+      CONFIG.BIOSTAR_IMPORT_MAX_ROWS = '2';
+      sourceRows = [
+        ...threeRows(),
+        sourceRow({ ID: '12100004' }),
+        sourceRow({ ID: '12100005' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(sourceReads()).toBe(1);
+      expect(importCalls()).toBe(3);
+    });
+
+    it('regression: orders the source by every column so a duplicated ID resolves the same way', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
+      sourceRows = [sourceRow({ ID: '12100001' })];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(
+        queriesSeen.find((q) => q.includes('FROM dbo.FakeRoster')),
+      ).toContain(
+        'ORDER BY ID, LastName, FirstName, MiddleName, Suffix, [Group], Status, Remarks, IsArchived',
+      );
+    });
+
+    it('regression: looks up a card only for a row that is about to be sent', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
+      sourceRows = threeRows();
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      (biostarApi.fetchBiostarUserDetail as jest.Mock).mockClear();
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002', FirstName: 'Maria' }),
+        sourceRow({ ID: '12100003' }),
+      ];
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(
+        (biostarApi.fetchBiostarUserDetail as jest.Mock).mock.calls.map(
+          ([id]) => id,
+        ),
+      ).toEqual(['12100002']);
+    });
+
+    it('regression: logs in to BioStar once per push', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
+      CONFIG.BIOSTAR_IMPORT_MAX_ROWS = '1';
+      sourceRows = threeRows();
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      expect(biostarApi.getApiToken).toHaveBeenCalledTimes(1);
     });
   });
 

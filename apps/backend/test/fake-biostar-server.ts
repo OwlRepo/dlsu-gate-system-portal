@@ -52,6 +52,8 @@ export interface Scenario {
   importFailedRows?: (string | Record<string, unknown>)[] | null;
   /** Body served by GET /download/:uri. Default keeps the legacy fixture. */
   errorCsv?: string;
+  /** Rows served by POST /api/audit/search. Default: none. */
+  auditRows?: Record<string, unknown>[];
   /** Omit `filename` from the attachment response. */
   attachmentOmitsFilename?: boolean;
   /** Fail the attachment upload this many times before succeeding. */
@@ -265,6 +267,15 @@ export class FakeBiostarServer {
     if (method === 'GET' && url.startsWith('/download/')) {
       res.writeHead(200, { 'content-type': 'text/csv' });
       res.end(this.scenario.errorCsv ?? 'user_id,reason\n12100001,rejected\n');
+      return;
+    }
+
+    // --- audit log -----------------------------------------------------
+    if (method === 'POST' && url.startsWith('/api/audit/search')) {
+      this.json(res, 200, {
+        AuditCollection: { rows: this.scenario.auditRows ?? [] },
+        Response: { code: '0' },
+      });
       return;
     }
 

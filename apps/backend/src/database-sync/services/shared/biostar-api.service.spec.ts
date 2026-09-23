@@ -484,3 +484,120 @@ describe('BiostarApiService — quiet, list-based lookups', () => {
     });
   });
 });
+
+describe('BiostarApiService.listAuditPhotoChanges', () => {
+  type AuditReader = {
+    listAuditPhotoChanges(
+      token: string,
+      sessionId: string,
+      since: Date,
+      until: Date,
+    ): Promise<Set<string> | null>;
+  };
+  let reader: AuditReader;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        BiostarApiService,
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn(
+              (key: string) =>
+                ({
+                  BIOSTAR_API_BASE_URL: 'https://biostar.fake',
+                  BIOSTAR_API_LOGIN_ID: 'fake',
+                  BIOSTAR_API_PASSWORD: 'fake',
+                })[key],
+            ),
+          },
+        },
+      ],
+    }).compile();
+    reader = module.get(BiostarApiService) as unknown as AuditReader;
+  });
+
+  const since = new Date('2026-09-23T04:00:00.000Z');
+  const until = new Date('2026-09-23T05:00:00.000Z');
+  const auditPage = (rows: Record<string, unknown>[]) => ({
+    data: { AuditCollection: { rows } },
+  });
+
+  it('error: returns null when the audit log cannot be read', async () => {
+    (axios.post as jest.Mock).mockRejectedValueOnce(
+      new Error('socket hang up'),
+    );
+
+    await expect(
+      reader.listAuditPhotoChanges('t0ken', 's3ss10n', since, until),
+    ).resolves.toBeNull();
+  });
+
+  it('edge: reads the user id from the last parentheses, whatever the name holds', async () => {
+    (axios.post as jest.Mock).mockResolvedValueOnce(
+      auditPage([
+        { CONTENT: 'audit.user.photo', TARGET: 'Cruz (Jr)(91000001)' },
+      ]),
+    );
+
+    await expect(
+      reader.listAuditPhotoChanges('t0ken', 's3ss10n', since, until),
+    ).resolves.toEqual(new Set(['91000001']));
+  });
+
+  // Measured live 2026-09-23: our own imports and remark edits share the
+  // user menu; only a photo change may send the pull to fetch a detail.
+  it('regression: ignores imports and changes that are not photos', async () => {
+    (axios.post as jest.Mock).mockResolvedValueOnce(
+      auditPage([
+        { CONTENT: 'audit.user.csv_import', TARGET: 'sync_batch1.csv' },
+        {
+          CONTENT: 'audit.user.user_custom_fields',
+          TARGET: 'Santos Juan(91000003)',
+        },
+        {
+          CONTENT: 'audit.user.photo|audit.user.user_custom_fields',
+          TARGET: 'Santos Juan(91000002)',
+        },
+      ]),
+    );
+
+    await expect(
+      reader.listAuditPhotoChanges('t0ken', 's3ss10n', since, until),
+    ).resolves.toEqual(new Set(['91000002']));
+  });
+
+  it('happy: asks for user changes in the window, page by page, in the format BioStar accepts', async () => {
+    const first = Array.from({ length: 500 }, (_, i) => ({
+      CONTENT: 'audit.user.photo',
+      TARGET: `User(${9100000 + i})`,
+    }));
+    (axios.post as jest.Mock)
+      .mockResolvedValueOnce(auditPage(first))
+      .mockResolvedValueOnce(
+        auditPage([{ CONTENT: 'audit.user.photo', TARGET: 'Last(91200000)' }]),
+      );
+
+    const ids = await reader.listAuditPhotoChanges(
+      't0ken',
+      's3ss10n',
+      since,
+      until,
+    );
+
+    expect(ids?.size).toBe(501);
+    const [firstUrl, firstBody] = (axios.post as jest.Mock).mock.calls[0];
+    expect(firstUrl).toBe('https://biostar.fake/api/audit/search');
+    expect(firstBody.Query.conditions).toEqual([
+      { column: 'MENU', operator: 0, values: ['user'] },
+      {
+        column: 'DATE',
+        operator: 3,
+        values: ['2026-09-23T04:00:00.00Z', '2026-09-23T05:00:00.00Z'],
+      },
+    ]);
+    expect((axios.post as jest.Mock).mock.calls[1][1].Query.offset).toBe(500);
+  });
+});

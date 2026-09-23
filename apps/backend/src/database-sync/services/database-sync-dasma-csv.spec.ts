@@ -255,7 +255,9 @@ describe('Dasma CSV — rendered bytes and volume', () => {
           if (text.includes('sys.columns'))
             return { recordset: [{ count: 1 }] };
           // Page by exactly what the service asked for, as a real server would.
-          const size = Number(text.match(/FETCH NEXT (\d+) ROWS/)?.[1] ?? 500);
+          const size = Number(
+            text.match(/FETCH NEXT (\d+) ROWS/)?.[1] ?? sourceRows.length,
+          );
           const offset = Number(text.match(/OFFSET (\d+) ROWS/)?.[1] ?? 0);
           return {
             recordset: sourceRows
