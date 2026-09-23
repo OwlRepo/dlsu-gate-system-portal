@@ -2653,17 +2653,17 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       );
       await this.commonService.cleanupTempFiles(tempDir);
 
-      // Remember the source snapshot only when every changed row reached
-      // BioStar or was definitively rejected by it; anything that may still
-      // need sending keeps the next run from skipping.
+      // Remember the source snapshot only when BioStar accepted every changed
+      // row. A rejected row keeps no hash and must go again next run — a
+      // deactivation BioStar refused would otherwise wait for an unrelated
+      // write to the source table before it is retried.
       const pushClean =
         biostarUploadsHalted === null &&
         partialImportUnparsed.length === 0 &&
         csnUnresolvedAll.length === 0 &&
+        csvRowsRejectedByBiostar.length === 0 &&
         uploadFailedBatches === 0 &&
-        csvImportOutcomes.every(
-          (o) => o.outcome === 'success' || o.outcome === 'partial',
-        );
+        csvImportOutcomes.every((o) => o.outcome === 'success');
       pushState.sourceLastWrite = pushClean ? sourceLastWrite : null;
       await this.biostarSyncStateRepository.update(pushState.id, {
         sourceLastWrite: pushState.sourceLastWrite,
