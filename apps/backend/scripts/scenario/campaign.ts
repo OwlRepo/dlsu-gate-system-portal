@@ -539,6 +539,118 @@ async function rcaCheck(): Promise<void> {
   }
 }
 
+/** Step 7: the 48-character boundary, and a row that may force a live partial. */
+async function seedBoundary(): Promise<void> {
+  console.log('SEED-BOUNDARY — name-length edge and a non-numeric id\n');
+  await insertRows(
+    [
+      row('91000031', { LastName: 'A'.repeat(23), FirstName: 'B'.repeat(24) }),
+      row('91000032', { LastName: 'A'.repeat(24), FirstName: 'B'.repeat(24) }),
+      row('9100ABC1', { LastName: 'Santos', FirstName: 'Juan' }),
+    ],
+    'boundary',
+  );
+}
+
+/** The newest file in a log directory whose name starts with `prefix`. */
+function newestLog(dir: string, prefix: string): string | null {
+  const full = path.resolve(__dirname, '../../logs', dir);
+  const hit = fs
+    .readdirSync(full)
+    .filter((f) => f.startsWith(prefix))
+    .map((f) => ({ f, t: fs.statSync(path.join(full, f)).mtimeMs }))
+    .sort((a, b) => a.t - b.t)
+    .pop()?.f;
+  return hit ? path.join(full, hit) : null;
+}
+
+/** Read-only evidence for Step 7. */
+async function check7(): Promise<void> {
+  const diagPath = newestLog('diagnostics', 'diag_manual-');
+  if (diagPath) {
+    const d = JSON.parse(fs.readFileSync(diagPath, 'utf8'));
+    const x = d.csvExport ?? {};
+    console.log(`diag: ${path.basename(diagPath)}`);
+    console.log(`  7-0 new build (key present): ${'nameTruncatedForBiostar' in x}`);
+    console.log(`  rowsEmitted            : ${x.rowsEmitted}`);
+    console.log(`  nameTruncatedForBiostar: ${JSON.stringify(x.nameTruncatedForBiostar?.ids)}`);
+    console.log(`  rowsRejectedByBiostar  : ${JSON.stringify(x.rowsRejectedByBiostar?.ids)}`);
+    console.log(`  partialImportUnparsed  : ${JSON.stringify(x.partialImportUnparsed)}`);
+    console.log(`  csvImport              : ${JSON.stringify(d.csvImport)}`);
+  }
+  const bs = await openBiostar();
+  for (const id of ['91000020', '91000031', '91000032', '91000030', '9100ABC1']) {
+    const r = await axios.get(`${bs.base}/api/users/${id}`, {
+      headers: bs.headers,
+      httpsAgent,
+      timeout: 40000,
+      validateStatus: () => true,
+    });
+    const u = (r.data?.User ?? r.data) as Record<string, unknown>;
+    const name = String(u?.name ?? '');
+    console.log(
+      `  BioStar ${id}: status=${r.status} expired=${JSON.stringify(u?.expired)} nameLen=${name.length} name=${JSON.stringify(name)}`,
+    );
+  }
+}
+
+/**
+ * Step 8: the four source changes. The DELETE is the only one in the campaign
+ * and touches one of our own rows by exact id — it is what reconciliation
+ * needs to see to archive a person who left the source.
+ */
+async function mutate(): Promise<void> {
+  console.log('MUTATE — F1..F4\n');
+  const pool = await openSource();
+  const steps: Array<[string, string, string]> = [
+    ['update', '91000002', `UPDATE ${SOURCE_TABLE} SET Remarks = NULL WHERE ID = '91000002'`],
+    ['update', '91000005', `UPDATE ${SOURCE_TABLE} SET Status = 1 WHERE ID = '91000005'`],
+    ['delete', '91000012', `DELETE FROM ${SOURCE_TABLE} WHERE ID = '91000012'`],
+    ['update', '91000001', `UPDATE ${SOURCE_TABLE} SET LastName = 'Changed' WHERE ID = '91000001'`],
+  ];
+  for (const [op, id, text] of steps) {
+    logWrite('mssql', op, [id], text);
+    const res = await pool.request().query(text);
+    console.log(`  ${op} ${id}: ${res.rowsAffected[0]} row(s)`);
+  }
+  await pool.close();
+}
+
+/** Read-only evidence for Step 8's F cases. */
+async function check8(): Promise<void> {
+  const diagPath = newestLog('diagnostics', 'diag_manual-');
+  if (diagPath) {
+    const d = JSON.parse(fs.readFileSync(diagPath, 'utf8'));
+    console.log(`diag: ${path.basename(diagPath)}`);
+    console.log(`  F4 rowsEmitted          : ${d.csvExport?.rowsEmitted}`);
+    console.log(`  F1 remarks.clearedInPostgres: ${JSON.stringify(d.remarks?.clearedInPostgres?.ids)}`);
+    console.log(`  F3 archivedByReconciliation : ${JSON.stringify(d.archivedByReconciliation)}`);
+  }
+  const bs = await openBiostar();
+  const get = async (id: string) => {
+    const r = await axios.get(`${bs.base}/api/users/${id}`, {
+      headers: bs.headers,
+      httpsAgent,
+      timeout: 40000,
+      validateStatus: () => true,
+    });
+    return (r.data?.User ?? r.data) as Record<string, any>;
+  };
+  const u2 = await get('91000002');
+  const f = (u2?.user_custom_fields ?? []).find(
+    (x: any) => x?.custom_field?.name === 'Remarks',
+  );
+  console.log(`  F1 BioStar 91000002 Remarks item: ${JSON.stringify(f ? f.item ?? '(no item key)' : '(no field)')}`);
+  const u5 = await get('91000005');
+  console.log(`  F2 BioStar 91000005 expired: ${JSON.stringify(u5?.expired)}`);
+  const pg = await openPostgres();
+  const s = await pg.query(
+    `SELECT "ID_Number", "isArchived" FROM students WHERE "ID_Number" = '91000012'`,
+  );
+  await pg.end();
+  console.log(`  F3 PostgreSQL 91000012: ${JSON.stringify(s.rows[0] ?? null)}`);
+}
+
 const COMMANDS: Record<string, () => Promise<void>> = {
   baseline,
   'clear-pg': clearPg,
@@ -547,6 +659,10 @@ const COMMANDS: Record<string, () => Promise<void>> = {
   'seed-extra': seedExtra,
   'rca-reactivate': rcaReactivate,
   'rca-check': rcaCheck,
+  'seed-boundary': seedBoundary,
+  check7,
+  mutate,
+  check8,
 };
 
 const cmd = process.argv[2];
