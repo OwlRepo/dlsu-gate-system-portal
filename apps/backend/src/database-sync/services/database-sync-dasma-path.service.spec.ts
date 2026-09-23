@@ -2776,6 +2776,34 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(importCalls()).toBe(3);
     });
 
+    // Measured 2026-09-23 (L3): 100 changed rows scattered across the roster
+    // went out as about 100 one-row imports, one per source page.
+    it('regression: sends changes from different source pages together in one import', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
+      CONFIG.BIOSTAR_IMPORT_MAX_ROWS = '2';
+      const roster = (firstName: string, lastFirstName: string) => [
+        sourceRow({ ID: '12100001', FirstName: firstName }),
+        sourceRow({ ID: '12100002' }),
+        sourceRow({ ID: '12100003' }),
+        sourceRow({ ID: '12100004' }),
+        sourceRow({ ID: '12100005', FirstName: lastFirstName }),
+      ];
+      sourceRows = roster('Juan', 'Juan');
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+
+      const importsBefore = importCalls();
+      sourceRows = roster('Maria', 'Jose');
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(importCalls() - importsBefore).toBe(1);
+      expect(latestCsv().map((r) => r.user_id)).toEqual([
+        '12100001',
+        '12100005',
+      ]);
+    });
+
     it('regression: orders the source by every column so a duplicated ID resolves the same way', async () => {
       (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
       sourceRows = [sourceRow({ ID: '12100001' })];
