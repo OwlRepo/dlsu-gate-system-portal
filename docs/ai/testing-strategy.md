@@ -59,7 +59,7 @@ Commands must be verified from package scripts or repo docs before being listed 
 | Dev server | `bun run dev` / `npm run dev` | Runs migrations automatically on boot (`main.ts` → `AppDataSource`). |
 | Type checking | `bun run check-types` | `tsc --noEmit`. |
 | Linting | `bun run lint` | `eslint --fix`. |
-| Unit tests | `bun run test` / `npm test` | Jest, co-located `*.spec.ts` files under `apps/backend/src`. 21 spec files, 273 tests (measured 2026-09-23). Run with `TZ=Asia/Manila` — the Dasma specs pin the clock and assert Manila-anchored datetimes. |
+| Unit tests | `bun run test` / `npm test` | Jest, co-located `*.spec.ts` files under `apps/backend/src`. 21 spec files, 286 tests (measured 2026-09-23). Run with `TZ=Asia/Manila` — the Dasma specs pin the clock and assert Manila-anchored datetimes. |
 | Coverage | `bun run test:cov` | Jest coverage report. |
 | E2E tests | `TZ=Asia/Manila bun run test:e2e` | `jest --config test/jest-e2e.json`. `test/dasma-sync-biostar.e2e-spec.ts` runs the Dasma sync against a real local PostgreSQL (`dlsu_gate_system_e2e`, schema built by the migrations) and a fake BioStar HTTP server (`test/fake-biostar-server.ts`) over real axios/multipart/fs — only the `mssql` driver is faked. Create the database once: `createdb -h localhost -p 5433 -U postgres dlsu_gate_system_e2e`. The stale Nest-scaffold `app.e2e-spec.ts` was removed: it asserted `GET /` → `"Hello World!"` on an `AppController` that has no routes, and could not even load. |
 | Migrations | `bun run migration:generate` / `migration:run` / `migration:revert` | Uses `src/config/data-source.ts` (the canonical DataSource — see `docs/ai/architecture-manifest.md` for the 3 inconsistent DataSource configs). |
