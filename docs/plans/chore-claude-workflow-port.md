@@ -125,6 +125,9 @@ flowchart LR
 - **Q2:** use the reference persona dispatch.
 - **Q3:** **no CI yet**, so P4 is removed.
 - **Q4:** mirror the reference and record `PILOT_FROZEN`.
+- **Codex (P3, 2026-09-23):** Romeo no longer uses Codex, so it is dropped. Personas are generated for Claude only (no `.codex/`), and the Codex round structure and model matrix are removed. `AGENTS.md` stays as the workflow core that `CLAUDE.md` imports.
+- **Claim reversed (P5):** production does not run PM2. `deploy-monorepo.bat` deletes legacy PM2 state and installs one NSSM Windows service (`install-monorepo-service.bat`). The same script runs `backup:db` then `migrate:backend` on every deploy, which closes that open item.
+- **Also dropped from P2:** `hooks:install`. The `prepare` script covers it, and Bun runs `prepare` (verified).
 
 ### Conflicts with existing rules (your call)
 

@@ -11,11 +11,11 @@ Rules:
 
 ## Repository Entry Point
 
-`../CLAUDE.md` (repo root) is the entry point a session actually starts from — it routes into this directory. Referenced from `core/operating-model.md` and `runtime/claude.md`.
+`../CLAUDE.md` (repo root) is the entry point a session actually starts from; it imports `../AGENTS.md` (the Canonical Task Flow). Both route into this directory for rules and into `../docs/ai/` for phase docs and project maps. Referenced from `core/operating-model.md` and `runtime/claude.md`.
 
 ## Project Knowledge
 
-`knowledge/` holds verified facts about this specific project — architecture, contracts, ownership, risk, testing commands. It never states an obligation ("must," "always," "never") — that's what the rule layer (`core/`, `agents/`, `workflows/`) is for. If a `knowledge/*` file starts prescribing behavior instead of describing what's true, that's drift from its job — fix it back to facts-only rather than leaving the rule duplicated in two places.
+Project facts do not live here. Since 2026-09-23 they live in `../docs/ai/` (architecture, contracts, ownership, risk, testing, environment, repository map), next to the phase docs that load them — see `../docs/ai/entry-point.md`. This directory holds rules only (`core/`, `agents/`, `workflows/`, `templates/`, `validation/`, `runtime/`, `config/`) plus `memory/`. If a rule file here starts restating a project fact, point it at the matching `docs/ai/` map instead.
 
 ## Canonical Files
 
@@ -38,16 +38,6 @@ Rules:
 - `core/operating-model.md`
 - `core/safety.md`
 - `core/task-lifecycle.md`
-- `knowledge/README.md`
-- `knowledge/architecture.md`
-- `knowledge/api-contracts.md`
-- `knowledge/db-contracts.md`
-- `knowledge/environment.md`
-- `knowledge/module-ownership-map.md`
-- `knowledge/repository-map.md`
-- `knowledge/risk-register.md`
-- `knowledge/testing-strategy.md`
-- `knowledge/test-plans/fe-campus-status-test-plan.md`
 - `memory/architecture-decisions.md`
 - `memory/lessons-learned.md`
 - `memory/project-memory.md`
@@ -70,7 +60,6 @@ Rules:
 - `validation/workflow-tests.md`
 - `workflows/blockers.md`
 - `workflows/bug-fix.md`
-- `workflows/context-refresh.md`
 - `workflows/daily-cycle.md`
 - `workflows/feature-development.md`
 - `workflows/refactor.md`
@@ -84,4 +73,4 @@ Adding a new file to `.ai-engineering/` requires declaring it in this Canonical 
 
 ## Codex-leftover guard
 
-This repo deleted its Codex-era AI-workflow layer on 2026-07-08 (`AGENTS.md`, `.codex/`, `CLAUDE_CODEX.md`, `.ai-scratchpad.md`, `.claude/settings.example.json`). If any of these reappear, flag and ask before silently deleting — do not assume it was intentional.
+This repo deleted its Codex-era AI-workflow layer on 2026-07-08 (`AGENTS.md`, `.codex/`, `CLAUDE_CODEX.md`, `.ai-scratchpad.md`, `.claude/settings.example.json`). On 2026-09-23 `../AGENTS.md` came back deliberately as the Claude workflow core (the Canonical Task Flow imported by `../CLAUDE.md`); Codex itself stays unused. If `.codex/`, `CLAUDE_CODEX.md`, `.ai-scratchpad.md` or `.claude/settings.example.json` reappear, flag and ask before silently deleting — do not assume it was intentional.

@@ -9,7 +9,7 @@ Use for:
 - implementation
 - review
 
-All outputs follow agent contracts (`agents/*.md`).
+All outputs follow agent contracts (`agents/*.md`). Every task follows the Canonical Task Flow in `../AGENTS.md`; code-changing tasks dispatch the generated personas (`../.claude/agents/`) per `../docs/ai/agent-orchestration.md`. The PreToolUse hook in `../.claude/settings.json` blocks edits to `apps/*/src` logic until `npm run tdd:red` records a RED (`../docs/ai/testing-strategy.md` "Strict TDD").
 
 ## Session Start Protocol
 
@@ -44,4 +44,4 @@ This governs **internal reasoning only**. Everything the human actually reads �
 | Backlog-ready spec/issue | `/spec` |
 | All web browsing | `/browse` — never `mcp__claude-in-chrome__*` tools directly |
 
-**ecc (Everyday Claude Code):** namespace `ecc:*`. Given this repo's stack (NestJS/TypeORM backend, Next.js/React frontend), the relevant ones are the TypeScript/React/database reviewers and the security-review skill — reach for `ecc:security-review` specifically on anything touching `auth`, `database-sync`, or account management (see `knowledge/risk-register.md`). Read the live command list from the `ecc` plugin rather than trusting this note if ever in doubt.
+**ecc (Everyday Claude Code):** namespace `ecc:*`. Given this repo's stack (NestJS/TypeORM backend, Next.js/React frontend), the relevant ones are the TypeScript/React/database reviewers and the security-review skill — reach for `ecc:security-review` specifically on anything touching `auth`, `database-sync`, or account management (see `docs/ai/risk-register.md`). Read the live command list from the `ecc` plugin rather than trusting this note if ever in doubt.

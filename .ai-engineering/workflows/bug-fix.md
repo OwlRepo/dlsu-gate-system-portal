@@ -2,13 +2,13 @@
 
 ## RCA-first gate
 
-No implementation steps before an approved RCA. Produce one using `templates/rca-report.md`, stop, and wait for explicit human approval of the root cause before writing a plan.
+No implementation steps before an approved RCA. Produce one using `../docs/ai/prompts/bugfix-rca.md`, stop, and wait for explicit human approval of the root cause before writing a plan.
 
 ## Steps (strict TDD order)
 
 1. Reproduce the issue.
-2. Identify root cause (`templates/rca-report.md`) — stop for approval.
-3. Create fix plan (`templates/plan.md`, Bug lane) — stop for approval on Standard/Deep (see `core/autonomy-levels.md`).
+2. Identify root cause (`../docs/ai/prompts/bugfix-rca.md`) — stop for approval.
+3. Create fix plan (`../docs/ai/prompts/bugfix-plan.md`) — stop for approval on Standard/Deep (see `core/autonomy-levels.md`).
 4. Write the regression test first. Confirm it fails against the pre-fix code — this is what proves the bug exists and what proves the fix works.
 5. Implement the minimum fix needed to make the test pass.
 6. Refactor if useful, tests staying green.

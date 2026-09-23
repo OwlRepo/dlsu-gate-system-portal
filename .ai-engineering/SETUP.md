@@ -4,6 +4,8 @@
 
 Installed 2026-08-08, replacing the prior `CLAUDE.md` + `docs/ai/` setup. Migration approved via the plan at `.claude/plans/check-the-autonomous-engineering-md-pack-quizzical-petal.md` — read it for the full rationale, migration mapping, and conflict resolutions. Project knowledge (`knowledge/`) was migrated verbatim from `docs/ai/`; the rule layer (`core/`, `agents/`, `workflows/`, `templates/`, `memory/`, `runtime/`, `config/`) was adapted from the generic `autonomous-engineering-md-package/` scaffold to carry forward this project's real rules (strict TDD + QA gate, gate-access invariants, communication style + caveman Ultra). The predict-verify Learning Contract hook was deliberately dropped, not carried over.
 
+**2026-09-23 — workflow port.** The Claude Code engineering workflow from the reference repo was ported (plan: `../docs/plans/chore-claude-workflow-port.md`): the Canonical Task Flow in `../AGENTS.md`, phase docs in `../docs/ai/`, generated personas (`../agents/src/` → `../.claude/agents/`), Strict TDD enforcement (`../scripts/ci/`, `../scripts/hooks/tdd-red-guard.mjs`, `../.claude/settings.json`), per-task worktrees (`../scripts/new-task-worktree.sh`) and a pre-commit guard (`../scripts/git-hooks/`). `knowledge/` moved to `../docs/ai/`. The autonomous layer is recorded as `PILOT_FROZEN` in `config/autonomous-engineering.yaml`. Decisions: no CI yet; Codex dropped; the reference's full bootstrap installer inventory was not generated (the reference never ran it either).
+
 The workflow below is preserved because it's still valid for a future re-bootstrap or refresh — not because this repo needs first-time install again.
 
 Goal:

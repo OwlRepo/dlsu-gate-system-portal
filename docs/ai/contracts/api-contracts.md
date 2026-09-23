@@ -1,5 +1,8 @@
 # API Contracts
 
+> Load rule: read before touching any controller, DTO, guard, gateway or the portal-web API client.
+> Source of truth: this is a MAP, never proof. Real code, tests, types, migrations and `package.json` scripts win; a mismatch is `CONTEXT DRIFT` (`CONTRACT DRIFT` for the contracts, testing and risk docs) — see `docs/ai/context-refresh.md`.
+
 Purpose:
 
 Map important frontend-backend contracts.

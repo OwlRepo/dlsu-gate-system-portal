@@ -1,5 +1,8 @@
 # Repository Map
 
+> Load rule: check before running a search for a known symbol or area.
+> Source of truth: this is a MAP, never proof. Real code, tests, types, migrations and `package.json` scripts win; a mismatch is `CONTEXT DRIFT` (`CONTRACT DRIFT` for the contracts, testing and risk docs) — see `docs/ai/context-refresh.md`.
+
 Purpose:
 
 Locate key files and directories quickly.
@@ -67,9 +70,9 @@ This index follows the `symbol/area → path — one-line purpose` style. It cov
 | Role enum | `apps/backend/src/auth/enums/role.enum.ts` | `USER='user'`, `ADMIN='admin'`, `SUPER_ADMIN='super-admin'`, `EMPLOYEE='employee'`. |
 | Token blacklist service | `apps/backend/src/auth/token-blacklist.service.ts` | Enforces single active token per (userId, role); Redis-backed, in-memory Map fallback. |
 | Token blacklist entity | `apps/backend/src/auth/entities/token-blacklist.entity.ts` | `token_blacklist` table. |
-| App controller | `apps/backend/src/app.controller.ts` | Dead — no routes. `test/app.e2e-spec.ts` expects `GET /` and is likely stale/failing. |
+| App controller | `apps/backend/src/app.controller.ts` | Dead — no routes. (The stale `app.e2e-spec.ts` that expected `GET /` was removed.) |
 | Backend unit tests | `apps/backend/src/**/*.spec.ts` | 11 spec files; only `admin`, `app`, `employee`, `login`, `reports` covered. |
-| Backend e2e test | `apps/backend/test/app.e2e-spec.ts` | Only e2e spec; likely stale. |
+| Backend e2e test | `apps/backend/test/dasma-sync-biostar.e2e-spec.ts` | Dasma sync end to end against local PostgreSQL + `apps/backend/test/fake-biostar-server.ts`. |
 
 ## Frontend (`apps/portal-web`)
 
@@ -104,17 +107,20 @@ This index follows the `symbol/area → path — one-line purpose` style. It cov
 | Users components | `apps/portal-web/src/components/users/` | `UserManagementPageContainer`, `AdminForm`, `EmployeeForm`, `SuperAdminForm`, `EditDetailsDialog`, `ViewProfileDialog` — has its own duplicated `CustomDropdown`/`CustomTable`, not shared with `components/custom/`. |
 | UI primitives | `apps/portal-web/src/components/ui/` | shadcn/Radix primitives. |
 | Frontend test config | `apps/portal-web/vitest.config.ts` | jsdom, setupFiles `src/test/setup.ts`. |
-| Frontend tests | `apps/portal-web/src/**/*.test.{ts,tsx}` | 9 files, all campus-mode/access-status feature area — see `testing-strategy.md` for gaps. |
+| Frontend tests | `apps/portal-web/src/**/*.test.{ts,tsx}` | 17 files, 80 tests (2026-09-23) — see `../testing-strategy.md` for coverage gaps. |
 
 ## Documentation
 
 | Directory | Purpose |
 | --- | --- |
-| `.ai-engineering/` | AI operating layer (rules, workflows, and this knowledge base) — maps only, not proof. |
+| `.ai-engineering/` | AI operating layer: rules, roles, workflows, templates. |
+| `docs/ai/` | AI workflow phase docs and project maps (this file) — maps only, not proof. |
+| `agents/src/` | Persona sources; `npm run agents:generate` writes `.claude/agents/`. |
+| `scripts/ci/`, `scripts/hooks/`, `scripts/git-hooks/` | Strict TDD engine (`tdd:red`, `tdd:gate`), Claude edit guard, pre-commit hook. |
 
 ## Update Status
 
-Last refreshed: 2026-08-08 (migration from `docs/ai/` to `.ai-engineering/knowledge/`).
+Last refreshed: 2026-09-23 (moved from the former .ai-engineering knowledge folder back to `docs/ai/` with the workflow port).
 
 Stale entries: none known at time of writing — verify against source before relying on this map for a Deep task.
 

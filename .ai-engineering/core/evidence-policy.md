@@ -38,4 +38,4 @@ Run in this order, stopping to report (not silently skipping) any command that's
 4. full test suite (if reasonable)
 5. build
 
-If a command doesn't exist in this repo, say so explicitly (`Not detected.`) rather than assuming it and moving on. See `knowledge/testing-strategy.md` for the actual verified commands.
+If a command doesn't exist in this repo, say so explicitly (`Not detected.`) rather than assuming it and moving on. See `docs/ai/testing-strategy.md` for the actual verified commands.

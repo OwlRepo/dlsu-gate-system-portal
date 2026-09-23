@@ -1,5 +1,8 @@
 # Environment
 
+> Load rule: read before running the apps locally, touching env vars, or applying migrations.
+> Source of truth: this is a MAP, never proof. Real code, tests, types, migrations and `package.json` scripts win; a mismatch is `CONTEXT DRIFT` (`CONTRACT DRIFT` for the contracts, testing and risk docs) — see `docs/ai/context-refresh.md`.
+
 Source of truth: root `.env`.
 
 ## Detected Stack
@@ -19,7 +22,7 @@ Source of truth: root `.env`.
 | Database | PostgreSQL + SQL Server source sync |
 | ORM | TypeORM |
 | Auth | JWT + role guards (backend) |
-| Deployment target | Windows Server 2022 (NSSM service scripts, PM2 process management) — see `deployment_docs_ws2022_prod/` |
+| Deployment target | Windows Server 2022, one NSSM Windows service installed by `install-monorepo-service.bat` (legacy PM2 state is deleted on every deploy) — see `deployment_docs_ws2022_prod/` |
 | CI/CD | Jenkinsfile detected in backend history; no root CI workflow (`.github/workflows/`) detected |
 | Env files | Root `.env` (authoritative), root `.env.example` |
 

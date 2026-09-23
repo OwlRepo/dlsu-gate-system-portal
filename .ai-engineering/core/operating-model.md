@@ -16,7 +16,7 @@ Human Request
 → Report
 
 
-This repo is single-agent: the "department" above is not seven dispatched agents but sequential **roles** one Claude thread adopts in order, in the same session — no handoff file, no separate process per role. `agents/*.md` each describe a role, not a separate agent to spawn. Reviewer independence, which normally comes from a different reviewer than the implementer, instead comes from a fresh review pass that takes only the diff as input (not the implementation reasoning that produced it), or from running gstack's `/review`.
+The "department" runs as generated Claude Code personas (`../.claude/agents/`, sources in `../agents/src/`), dispatched by the main session per `../docs/ai/agent-orchestration.md` (decided 2026-09-23; it replaces the earlier single-agent rule). `agents/*.md` here are the role **contracts** those personas follow: `project-manager` covers Product Manager + Coordinator, `database-architect` covers Architect for schema work, `nestjs-backend-dev` / `nextjs-frontend-dev` are Implementers, `code-reviewer` / `security-auditor` are Reviewers, `test-engineer` / `accessibility-auditor` / `ui-ux-designer` are QA. A subagent cannot spawn another subagent, so the main session is always the orchestrator. Reviewer independence comes from a persona (or gstack `/review`) that takes only the diff as input, never the implementation reasoning.
 
 Goals:
 

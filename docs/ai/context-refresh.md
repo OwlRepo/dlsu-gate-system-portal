@@ -1,32 +1,38 @@
 # Context Refresh
 
-Refreshes `knowledge/*` docs when they've gone stale. Read-only for source code — only `knowledge/*` files may be edited. No implementation planning, no feature work during a refresh.
+> Load rule: run when the maps look stale, after a large merge, or when explicitly asked to refresh context.
+> Source of truth: real code, tests, types, migrations and `package.json` scripts; the maps below are never proof.
+
+Refreshes `docs/ai/*` docs when they've gone stale. Read-only for source code — only `docs/ai/*` files may be edited. No implementation planning, no feature work during a refresh.
 
 ## When to run
 
-On explicit request ("refresh context", "re-bootstrap", "update the AI setup") — not automatically. Between refreshes, if a task turns up a fact that contradicts a `knowledge/*` doc, mark `CONTEXT DRIFT` (or `CONTRACT DRIFT` for api/db/test/risk docs) in that task's output and keep going using source code as truth. Don't silently fix the doc mid-task.
+On explicit request ("refresh context", "re-bootstrap", "update the AI setup") — not automatically. Between refreshes, if a task turns up a fact that contradicts a `docs/ai/*` doc, mark `CONTEXT DRIFT` (or `CONTRACT DRIFT` for api/db/test/risk docs) in that task's output and keep going using source code as truth. Don't silently fix the doc mid-task.
 
 ## Files in scope
 
-- `knowledge/architecture.md`
-- `knowledge/api-contracts.md`
-- `knowledge/db-contracts.md`
-- `knowledge/module-ownership-map.md`
-- `knowledge/risk-register.md`
-- `knowledge/testing-strategy.md`
-- `knowledge/environment.md`
-- `knowledge/repository-map.md`
+- `docs/ai/architecture-manifest.md`
+- `docs/ai/contracts/api-contracts.md`
+- `docs/ai/contracts/db-contracts.md`
+- `docs/ai/module-ownership-map.md`
+- `docs/ai/risk-register.md`
+- `docs/ai/testing-strategy.md`
+- `docs/ai/dev-environment.md`
+- `docs/ai/file-index/repository-map.md`
+- Phase docs, only when a fact they cite changed: `AGENTS.md`, `CLAUDE.md`, `docs/ai/entry-point.md`, `docs/ai/task-router.md`, `docs/ai/planning.md`, `docs/ai/plan-template.md`, `docs/ai/execution.md`, `docs/ai/handoff.md`, `docs/ai/pr-evidence.md`, `docs/ai/agent-orchestration.md`, `docs/ai/autonomous-engineering.md`, `docs/ai/prompts/*.md`
+
+Maps state facts, never obligations ("must", "always") — obligations belong in `.ai-engineering/` or the phase docs. A map that starts prescribing behaviour has drifted; move the rule to its home.
 
 ## Rules
 
 - Every fact must be re-verified against source: code, tests, types, migrations, route definitions, controllers/services, components, `package.json` scripts, CI config, deployment docs.
 - Never invent. Unknowns get `TODO: Fill after repository analysis. Do not treat as verified.`
-- `repository-map.md` specifically: update only the entries touched by what prompted the refresh (or, for a full refresh, walk the whole map) — don't rewrite unrelated rows. This map exists so Claude doesn't re-grep the same symbols every session; a stale line number is `CONTEXT DRIFT`, fix it in the same turn you find it.
-- This absorbs the old "update file indexes" trigger: after substantive edits, file moves/renames, or new feature creation, update only the stale `knowledge/repository-map.md` rows — don't wait for a full refresh cycle.
+- `file-index/repository-map.md` specifically: update only the entries touched by what prompted the refresh (or, for a full refresh, walk the whole map) — don't rewrite unrelated rows. This map exists so Claude doesn't re-grep the same symbols every session; a stale line number is `CONTEXT DRIFT`, fix it in the same turn you find it.
+- This absorbs the old "update file indexes" trigger: after substantive edits, file moves/renames, or new feature creation, update only the stale `docs/ai/file-index/repository-map.md` rows — don't wait for a full refresh cycle.
 
 ## Documentation Sync Rule
 
-Every code change updates the matching `knowledge/*` entries in the same change — not deferred. Touch only the rows/sections the change actually affects. If a touched area has no existing entry, add one instead of leaving it unmapped.
+Every code change updates the matching `docs/ai/*` entries in the same change — not deferred. Touch only the rows/sections the change actually affects. If a touched area has no existing entry, add one instead of leaving it unmapped.
 
 ## Output
 

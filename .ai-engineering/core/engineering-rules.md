@@ -19,6 +19,8 @@ During coding — strict TDD, no exceptions:
 
 **Non-behavioral exemptions from TDD** (write directly, no failing test required): documentation-only, formatting-only, comment-only, config-only (non-behavioral), file-index-only changes.
 
+**Enforcement:** the Claude PreToolUse hook blocks guarded edits until `npm run tdd:red` records a RED, and `npm run tdd:gate` re-proves it against the base before every PR — mechanics, case-prefix order (`error:` > `edge:` > `regression:` > `happy:`) and waivers in `../docs/ai/testing-strategy.md` "Strict TDD".
+
 **Hard gate:** no production code edits until the plan (see `templates/plan.md`) is complete for Standard/Deep tasks, and until a failing test has been observed failing for any behavior-changing task. Missing test tooling is not a reason to skip coverage — set it up first.
 
 Before every edit: confirm the file path exists, locate the exact symbol to modify, inspect nearby code, verify imports/exports, check related tests, check consumers for public API impact. See `core/evidence-policy.md` for the "never assume" rules this depends on.

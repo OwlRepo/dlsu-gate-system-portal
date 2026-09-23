@@ -13,6 +13,6 @@ Level 4:
 AI deploys automatically.
 
 Default:
-Level 2.
+Level 2. The autonomous work-order layer is installed `PILOT_FROZEN` (`config/autonomous-engineering.yaml`, `../docs/ai/autonomous-engineering.md`): no merge or deploy until Romeo activates it.
 
 Production, security, billing, permissions, and destructive actions require human approval.

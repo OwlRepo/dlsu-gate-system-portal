@@ -1,5 +1,8 @@
 # Frontend Test Plan: Campus-Aware Access Status (MTL vs Dasma)
 
+> Load rule: per-feature test artifact; read when working on campus status mapping.
+> Source of truth: this is a MAP, never proof. Real code, tests, types, migrations and `package.json` scripts win; a mismatch is `CONTEXT DRIFT` (`CONTRACT DRIFT` for the contracts, testing and risk docs) — see `docs/ai/context-refresh.md`.
+
 ## Scope
 - Validates frontend behavior changes introduced by campus-aware status normalization.
 - Covers utility logic, status visuals, report labels, and remarks visibility.

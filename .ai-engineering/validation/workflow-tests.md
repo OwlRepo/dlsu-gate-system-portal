@@ -46,7 +46,7 @@ Input: Fix the role-casing bug in `login.service.ts`.
 
 Expected:
 
-- Task Size: Deep (auth/roles — `knowledge/risk-register.md`)
+- Task Size: Deep (auth/roles — `docs/ai/risk-register.md`)
 - RCA-first gate: `templates/rca-report.md` produced and approved before any plan (`workflows/bug-fix.md`)
 - Approval gate: explicit human approval of RCA root cause before plan; `Deep implementation approved: Yes` before implementation
 - Regression test written first, observed failing against the pre-fix `'ADMIN'` vs `Role.ADMIN` casing bug, then passing after the fix (`core/engineering-rules.md`)
@@ -60,7 +60,7 @@ Input: Add a column to `reports`.
 
 Expected:
 
-- Task Size: Deep (`reports` is the gate access-decision log — `knowledge/risk-register.md`)
+- Task Size: Deep (`reports` is the gate access-decision log — `docs/ai/risk-register.md`)
 - Migration Danger Gate answered before the plan is ready (`workflows/feature-development.md` or `templates/plan.md` Feature lane): migration required, backfill, default/nullability, index/constraint impact, existing data impact, rollback, deployment ordering
 - Human approval required before the schema change is implemented — this is a database migration, not display-only
 - Any unanswered gate question → `UNVERIFIED DEPENDENCY`, stop until resolved

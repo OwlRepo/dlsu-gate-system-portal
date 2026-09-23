@@ -1,5 +1,8 @@
 # Architecture
 
+> Load rule: read after `task-router.md`, before diving into a module.
+> Source of truth: this is a MAP, never proof. Real code, tests, types, migrations and `package.json` scripts win; a mismatch is `CONTEXT DRIFT` (`CONTRACT DRIFT` for the contracts, testing and risk docs) — see `docs/ai/context-refresh.md`.
+
 Purpose:
 
 Navigate and understand system structure before detailed file inspection.
@@ -21,7 +24,7 @@ Bun 1.2 + Turborepo monorepo (root `package.json` orchestrates `apps/*` via `tur
 - **`apps/backend`**: NestJS + TypeORM + PostgreSQL API server.
 - **`apps/portal-web`**: Next.js 15 (App Router) + React 19 admin/reporting portal.
 - **`packages/`**: `eslint-config`, `typescript-config`, `ui` — shared workspace packages exist. (Earlier drafts of this map said "no shared packages/ workspace confirmed" — that was `CONTEXT DRIFT`, corrected here.)
-- Deployment targets: Windows Server 2022 (NSSM service scripts, PM2 process management) — see `deployment_docs_ws2022_prod/`. On-prem/hybrid, not pure cloud SaaS.
+- Deployment targets: Windows Server 2022, one NSSM Windows service installed by `install-monorepo-service.bat` (legacy PM2 state is deleted on every deploy) — see `deployment_docs_ws2022_prod/`. On-prem/hybrid, not pure cloud SaaS.
 
 ## Frontend
 
@@ -41,7 +44,7 @@ Bun 1.2 + Turborepo monorepo (root `package.json` orchestrates `apps/*` via `tur
 - **Stack**: NestJS + TypeORM + PostgreSQL + Redis (cache/session support).
 - **Entry point**: `apps/backend/src/main.ts` — boots `AppDataSource` (`src/config/data-source.ts`) and runs migrations automatically on every boot; registers `JwtAuthGuard` as a GLOBAL guard (`app.useGlobalGuards`) so every route requires JWT unless `@Public()`; CORS wide open (`origin: '*'`); Swagger at `/api/docs`; NO global `ValidationPipe` (most DTOs unvalidated); rate limit 1000/15min; static serving of `persistent_uploads/`.
 - **Root module**: `apps/backend/src/app.module.ts` — `TypeOrmModule` (Postgres, `synchronize: false`, `autoLoadEntities: true`), feature modules: `EmployeeModule`, `ReportsModule`, `LoginModule`, `AdminModule`, `UsersModule`, `SuperAdminModule`, `HealthModule`, `DatabaseSyncModule`, `CacheModule` (redis), `AuthModule`, `StudentsModule`, `SyncModule`. Global `HttpCacheInterceptor` (Redis-backed GET cache).
-- **API route structure / service layer**: one controller+service+entity trio per domain module — see `module-ownership-map.md` for the full domain list and `api-contracts.md` for the full route inventory.
+- **API route structure / service layer**: one controller+service+entity trio per domain module — see `module-ownership-map.md` for the full domain list and `contracts/api-contracts.md` for the full route inventory.
 - **Error handling / logging**: no centralized exception filter or logger confirmed beyond default Nest behavior; `database-sync` writes plaintext audit logs to `logs/skipped-records`, `logs/synced-records`, `logs/photo-conversion`.
 - **Testing frameworks**: Jest for unit tests (`*.spec.ts` co-located under `src/`), Jest for e2e (`test/jest-e2e.json`).
 - **Database ORM/query layer**: TypeORM. **CONTEXT DRIFT candidate / dead-code note**: three inconsistent DataSource configs exist — `src/config/data-source.ts` (canonical, used by `migration:*` npm scripts and `main.ts` boot), `src/data-source.ts` at root (unused duplicate), `src/config/typeorm.config.ts` (used by `typeorm:*` scripts), `src/config/database.config.ts` (dead/unused). Always verify which config a given script actually loads before assuming they're in sync.
@@ -51,13 +54,13 @@ Bun 1.2 + Turborepo monorepo (root `package.json` orchestrates `apps/*` via `tur
 - **Database type**: PostgreSQL, accessed via TypeORM.
 - **Schema location**: entity classes under each domain module (`apps/backend/src/<domain>/entities/`).
 - **Migration strategy**: `src/migrations/` (20 files as of last discovery), auto-run on every backend boot via `main.ts` → `AppDataSource`. A duplicate migration file (`AddActivationColumnsToUsers`) exists twice — flagged as known drift, see below.
-- **Key models/tables**: `admin`, `super-admin`, `employee`, `students`, `reports`, `token_blacklist`, `sync_schedule`, `sync_queue`, `biostar_sync_state`. Full field-level detail in `db-contracts.md`.
+- **Key models/tables**: `admin`, `super-admin`, `employee`, `students`, `reports`, `token_blacklist`, `sync_schedule`, `sync_queue`, `biostar_sync_state`. Full field-level detail in `contracts/db-contracts.md`.
 - **Relationships / constraints**: no FK relationship diagram confirmed; several tables (e.g. `students`, `reports`) appear to reference other domains by loosely-typed id/name fields rather than TypeORM relations. Verify against entity decorators before assuming referential integrity is enforced at the DB level.
 
 ## API Contracts
 
 - **Authentication method**: JWT bearer tokens, validated by a GLOBAL `JwtAuthGuard` (`src/auth/jwt-auth.guard.ts`) applied to every route unless annotated `@Public()`.
-- **Authorization model**: role-based, intended to be enforced via `RolesGuard` (`src/auth/guards/roles.guard.ts`) + `@Roles()` decorator, backed by `Role` enum (`USER`, `ADMIN`, `SUPER_ADMIN`, `EMPLOYEE`) in `src/auth/enums/role.enum.ts`. **Inconsistently applied in practice**: `AdminController` has no role guard at all; `SuperAdminController`'s `/register` has no role check; several `SuperAdminController` routes do manual in-code role checks instead of using `RolesGuard`; `DatabaseSyncController`'s `/sync` and `/biostar/sync` skip the role guard while sibling routes on the same controller use it correctly. See `api-contracts.md` "Known Auth / Permission Gaps" for the full cited list.
+- **Authorization model**: role-based, intended to be enforced via `RolesGuard` (`src/auth/guards/roles.guard.ts`) + `@Roles()` decorator, backed by `Role` enum (`USER`, `ADMIN`, `SUPER_ADMIN`, `EMPLOYEE`) in `src/auth/enums/role.enum.ts`. **Inconsistently applied in practice**: `AdminController` has no role guard at all; `SuperAdminController`'s `/register` has no role check; several `SuperAdminController` routes do manual in-code role checks instead of using `RolesGuard`; `DatabaseSyncController`'s `/sync` and `/biostar/sync` skip the role guard while sibling routes on the same controller use it correctly. See `contracts/api-contracts.md` "Known Auth / Permission Gaps" for the full cited list.
 - **Standard response / error format**: no confirmed global exception filter or response envelope.
 - **API versioning strategy**: none confirmed — routes are unversioned (`/admin`, `/employee`, etc., no `/v1` prefix).
 - **Pagination strategy**: not confirmed.
@@ -75,7 +78,7 @@ Bun 1.2 + Turborepo monorepo (root `package.json` orchestrates `apps/*` via `tur
 
 ## Jobs / Automations
 
-- **Scheduling system**: `cron` package + Nest `SchedulerRegistry`, used by `src/database-sync/` for roster/BioStar sync jobs. Timezone hardcoded to `Asia/Manila`. Default schedules 09:00/21:00, configurable via `sync_schedule` table and `/database-sync/schedule*` endpoints. **These are real, running schedules — do not confuse with any AI-workflow automation timing, which is manual/on-demand (see `../workflows/daily-cycle.md`).**
+- **Scheduling system**: `cron` package + Nest `SchedulerRegistry`, used by `src/database-sync/` for roster/BioStar sync jobs. Timezone hardcoded to `Asia/Manila`. Default schedules 09:00/21:00, configurable via `sync_schedule` table and `/database-sync/schedule*` endpoints. **These are real, running schedules — do not confuse with any AI-workflow automation timing, which is manual/on-demand (see `.ai-engineering/workflows/daily-cycle.md`).**
 - **Background job types**: (1) scheduled full roster sync from external SQL Server, (2) BioStar hardware enrollment/photo push-pull sync, (3) manual sync triggered via `DatabaseSyncQueueService` + `sync_queue` table.
 - **Concurrency control**: global async mutex `studentMutationLock` serializes all mutations to the `students` table across all sync paths.
 - **Retry strategy / failure handling**: not fully confirmed beyond the confirmed rollback behavior on `/database-sync/delete-users` (archives in Postgres then deletes from BioStar, rolls back Postgres archive on BioStar failure).

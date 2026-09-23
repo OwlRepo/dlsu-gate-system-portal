@@ -1,5 +1,8 @@
 # Module Ownership Map
 
+> Load rule: read right after classifying a task (`task-router.md`) — domain, FE/BE/DB areas, tests, default risk.
+> Source of truth: this is a MAP, never proof. Real code, tests, types, migrations and `package.json` scripts win; a mismatch is `CONTEXT DRIFT` (`CONTRACT DRIFT` for the contracts, testing and risk docs) — see `docs/ai/context-refresh.md`.
+
 Purpose:
 
 Map product/business domains to implementation areas.
