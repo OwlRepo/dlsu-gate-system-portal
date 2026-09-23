@@ -368,6 +368,78 @@ export class BiostarApiService {
     }
   }
 
+  /**
+   * user_ids whose photo was changed between `since` and `until`, read from
+   * BioStar's own audit log in one paged query.
+   *
+   * Measured on the sandbox 2026-09-23: a photo uploaded through the admin
+   * app or the API is logged under the user menu with CONTENT containing
+   * `audit.user.photo` and TARGET `Name(user_id)`. Returns null when the log
+   * cannot be read, so the caller keeps its list-based signals alone.
+   */
+  async listAuditPhotoChanges(
+    token: string,
+    sessionId: string,
+    since: Date,
+    until: Date,
+  ): Promise<Set<string> | null> {
+    const pageSize = 500;
+    // The format BioStar accepted in the live probe: two fraction digits.
+    const asBiostarDate = (d: Date) =>
+      d.toISOString().replace(/\.\d{3}Z$/, '.00Z');
+    const ids = new Set<string>();
+    try {
+      for (let offset = 0; ; offset += pageSize) {
+        const response = await axios.post(
+          `${this.apiBaseUrl}/api/audit/search`,
+          {
+            Query: {
+              offset,
+              limit: pageSize,
+              conditions: [
+                { column: 'MENU', operator: 0, values: ['user'] },
+                {
+                  column: 'DATE',
+                  operator: 3,
+                  values: [asBiostarDate(since), asBiostarDate(until)],
+                },
+              ],
+              total: false,
+            },
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+              'bs-session-id': sessionId,
+              accept: 'application/json',
+            },
+            httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+            timeout: 120000,
+          },
+        );
+        const rows = (response.data?.AuditCollection?.rows ?? []) as Record<
+          string,
+          unknown
+        >[];
+        for (const row of rows) {
+          const content = String(row.CONTENT ?? '').split('|');
+          if (!content.includes('audit.user.photo')) continue;
+          const id = /\(([^()]+)\)\s*$/.exec(String(row.TARGET ?? ''))?.[1];
+          if (id) ids.add(id);
+        }
+        if (rows.length < pageSize) return ids;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[Dasma Biostar] Could not read the audit log; photo replacements wait for the list signals: ${
+          (error as Error)?.message ?? String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
   getApiBaseUrl(): string {
     return this.apiBaseUrl;
   }

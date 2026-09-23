@@ -1832,8 +1832,8 @@ describe('DatabaseSyncDasmaPathService', () => {
       }
     });
 
-    // The unit fake has no user list, so this is the fallback path: a person
-    // with no stored card is looked up per run, and each lookup is counted.
+    // The unit fake has no user list, so lookups go per user. Each one is
+    // counted — and an unchanged row is not sent, so it needs none on run 2.
     it('edge: counts a per-user card lookup when the BioStar user list is unavailable', async () => {
       sourceRows = [
         sourceRow({ ID: '12100001' }),
@@ -1846,7 +1846,7 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       const [first, second] = diagnosticsWritten();
       expect(first.csvExport.csnApiLookups).toBe(2);
-      expect(second.csvExport.csnApiLookups).toBe(2);
+      expect(second.csvExport.csnApiLookups).toBe(0);
     });
 
     // Changed-only export, pinned by identity: after one row changes, that row

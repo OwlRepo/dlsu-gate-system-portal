@@ -36,6 +36,9 @@ const ACTIVATION_VALIDITY_YEARS = 10;
  */
 const CSV_IMPORT_TIMEOUT_MS = 10 * 60 * 1000;
 
+/** The audit window reaches back this far past the last clean pull. */
+const AUDIT_OVERLAP_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   private readonly logger = new Logger(DatabaseSyncDasmaPathService.name);
@@ -116,16 +119,17 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
 
     /**
      * How stale a full pass may get before the next run is forced to be one.
-     * `0` means every run walks the whole list.
+     * `0` means every run walks the whole list. Unset means never: a replaced
+     * photo is named by BioStar's audit log instead (see auditPhotoChanges).
      */
     const parsedFullSyncHours = parseInt(
       String(this.configService.get('BIOSTAR_FULL_SYNC_INTERVAL_HOURS') ?? ''),
       10,
     );
-    const fullSyncIntervalHours =
+    const fullSyncIntervalHours: number | null =
       Number.isFinite(parsedFullSyncHours) && parsedFullSyncHours >= 0
         ? parsedFullSyncHours
-        : 24;
+        : null;
 
     const state = await this.getOrCreateBiostarSyncState();
     state.lastRunAt = new Date();
@@ -182,10 +186,21 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
      * among those, not as the gate.
      */
     const deepPass =
-      fullSyncIntervalHours === 0 ||
-      !state.lastFullSyncAt ||
-      Date.now() - state.lastFullSyncAt.getTime() >=
-        fullSyncIntervalHours * 3600 * 1000;
+      fullSyncIntervalHours !== null &&
+      (fullSyncIntervalHours === 0 ||
+        !state.lastFullSyncAt ||
+        Date.now() - state.lastFullSyncAt.getTime() >=
+          fullSyncIntervalHours * 3600 * 1000);
+    // Signal three: photos replaced in the BioStar admin app, which the list
+    // cannot show (photo_exists stays true). One paged audit query instead of
+    // re-reading every photo holder.
+    const auditUntil = new Date();
+    const auditPhotoChanges = await this.loadAuditPhotoChanges(
+      token,
+      sessionId,
+      state.lastAuditAt ?? null,
+      auditUntil,
+    );
     /** Users re-read because no list field could have exposed their change. */
     let totalDeepPassReads = 0;
     /** Users re-read because BioStar's list row disagreed with PostgreSQL. */
@@ -306,7 +321,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             (cardCount > 0 && !held.hasCard);
 
           if (drifted && !changed) pageDriftReads++;
-          return changed || drifted;
+          const photoReplaced =
+            auditPhotoChanges?.has(String(u.user_id)) === true;
+          return changed || drifted || photoReplaced;
         });
         totalDriftReads += pageDriftReads;
         totalDeepPassReads += pageDeepReads;
@@ -619,6 +636,11 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         state.lastSuccessAt = new Date();
         state.lastError = null;
         state.lastModifiedCursor = maxLastModified;
+        // Advance the audit window only when it was read, or never existed:
+        // a failed read leaves the gap for the next run to cover.
+        if (auditPhotoChanges !== null || !state.lastAuditAt) {
+          state.lastAuditAt = auditUntil;
+        }
         if (deepPass) {
           state.lastFullSyncAt = new Date();
         }
@@ -660,6 +682,9 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         // Wall time per phase (ms), summed across list pages.
         timingsMs: { ...timingsMs, total: durationMs },
         listNarrowedByLastModified: false,
+        // Users the audit log named as photo-replaced; null = not read.
+        auditPhotoChanges:
+          auditPhotoChanges === null ? null : auditPhotoChanges.size,
         deepPass,
         driftReads: totalDriftReads,
         deepPassReads: totalDeepPassReads,
@@ -787,6 +812,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   private async sweepUncheckedRemarks(
     jobName: string,
     cardDirectory: Map<string, number> | null,
+    session: () => Promise<{ token: string; sessionId: string }>,
   ): Promise<number> {
     const SWEEP_SIZE = 500;
     try {
@@ -815,15 +841,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         );
       }
 
-      let session: { token: string; sessionId: string } | null = null;
       const rateLimitTracker = { count: 0 };
       const flagged: string[] = [];
 
       for (const student of unchecked.filter(
         (s) => !notInBiostar.has(s.ID_Number),
       )) {
-        session ??= await this.biostarApiService.getApiToken();
-        const { token, sessionId } = session;
+        const { token, sessionId } = await session();
         const { detail, definitive } =
           await this.biostarApiService.fetchBiostarUserDetail(
             student.ID_Number,
@@ -1045,10 +1069,66 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     this.commonService.addElapsed(timingsMs, 'persistRowHashes', hashStart);
   }
 
-  /** Reads the run's card directory; null means "ask per user", as before. */
-  private async loadCardDirectory(): Promise<Map<string, number> | null> {
+  /** Photo replacements since `since` from BioStar's audit log; null = unknown. */
+  private async loadAuditPhotoChanges(
+    token: string,
+    sessionId: string,
+    since: Date | null,
+    until: Date,
+  ): Promise<Set<string> | null> {
+    if (!since) return null;
     try {
-      const { token, sessionId } = await this.biostarApiService.getApiToken();
+      return await this.biostarApiService.listAuditPhotoChanges(
+        token,
+        sessionId,
+        new Date(since.getTime() - AUDIT_OVERLAP_MS),
+        until,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[Dasma Biostar] Audit log unavailable: ${
+          (error as Error)?.message ?? String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * When SQL Server last saw a write to the source table, or null when it
+   * cannot say — the DMV is empty after a restart, or the login lacks VIEW
+   * SERVER STATE. Null always means "read the source": being wrong costs one
+   * 0.8 s read, never a missed change.
+   */
+  private async readSourceLastWrite(
+    pool: sql.ConnectionPool,
+  ): Promise<string | null> {
+    try {
+      const result = await pool
+        .request()
+        .input(
+          'table',
+          sql.NVarChar(256),
+          this.configService.get('SOURCE_DB_TABLE'),
+        )
+        .query(
+          `SELECT CONVERT(varchar(33), MAX(last_user_update), 126) AS lastWrite
+             FROM sys.dm_db_index_usage_stats
+            WHERE database_id = DB_ID() AND object_id = OBJECT_ID(@table)`,
+        );
+      const value = result.recordset?.[0]?.lastWrite;
+      return typeof value === 'string' && value !== '' ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Reads the run's card directory; null means "ask per user", as before. */
+  private async loadCardDirectory(
+    session: () => Promise<{ token: string; sessionId: string }>,
+  ): Promise<Map<string, number> | null> {
+    try {
+      const { token, sessionId } = await session();
       return await this.biostarApiService.listUserCardCounts(token, sessionId);
     } catch (error) {
       this.logger.warn(
@@ -1186,6 +1266,38 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       this.logger.log(
         `Table ${hasIsArchivedColumn ? 'has' : 'does not have'} IsArchived column`,
       );
+      // Has anyone written to the source since the last clean push? One DMV
+      // read (0.15 s on the sandbox) instead of reading every row. Pending
+      // remark clears still need this run, so they always prevent a skip.
+      const sourceLastWrite = await this.readSourceLastWrite(pool);
+      const pushState = await this.getOrCreateBiostarSyncState();
+      const clearsPending = await this.studentRepository.find({
+        where: { remarks_clear_pending: true },
+        select: ['ID_Number'],
+        take: 1,
+      });
+      if (
+        sourceLastWrite !== null &&
+        pushState.sourceLastWrite === sourceLastWrite &&
+        clearsPending.length === 0
+      ) {
+        this.logger.log(
+          `[Dasma] Source unchanged since the last clean sync (${sourceLastWrite}); nothing to push`,
+        );
+        await this.commonService.writeSyncDiagnostics(jobName, {
+          direction: 'sql-server-to-postgres-to-biostar',
+          schemaEnv: 'dasma',
+          skippedUnchangedSource: true,
+          sourceLastWrite,
+          timingsMs: { total: Date.now() - runStartMs },
+        });
+        return {
+          success: true,
+          message: 'Source unchanged; nothing to push',
+          recordsProcessed: 0,
+        };
+      }
+
       // One timestamp for the whole run. Every activation stamped by this sync
       // shares it, so a batch that straddles midnight cannot hand two people
       // activated in the same run expiry dates a day apart.
@@ -1266,6 +1378,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       } | null = null;
       /** Changed rows held back because uploads were halted this run. */
       let rowsDeferredAfterHalt = 0;
+      /** Batches whose CSV never reached csv_import. */
+      let uploadFailedBatches = 0;
 
       // One source page becomes one csv_import. A 746-row import got code 4
       // ("still importing") on 2026-09-23, so the page is capped. 100 is the
@@ -1309,11 +1423,32 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       dayjs.extend(utc);
       dayjs.extend(timezone);
 
-      // Who BioStar holds and how many cards each has, read once per run.
-      // Replaces a detail request per card-less row (about 6 a second; 20,000
-      // per sync at DLSU's size). null = the list could not be read in full,
-      // and every lookup below falls back to asking per user, as before.
-      const cardDirectory = await this.loadCardDirectory();
+      // One BioStar login for the whole push. An upload retry logs in afresh
+      // in case the session is what failed; everything else reuses it. The
+      // 2026-09-23 cold run logged in about 200 times.
+      let pushSessionPromise: Promise<{
+        token: string;
+        sessionId: string;
+      }> | null = null;
+      const pushSession = (renew = false) => {
+        if (renew || !pushSessionPromise) {
+          pushSessionPromise = this.biostarApiService.getApiToken();
+        }
+        return pushSessionPromise;
+      };
+      // BioStar's user list (500 users a page) is read at most once per push,
+      // and only when more rows need a card check than it costs pages to read
+      // (40 at 20k users; 50 chosen above that). undefined = not read yet;
+      // null = could not be read in full, so lookups go per user.
+      let cardDirectory: Map<string, number> | null | undefined;
+      const parsedDirectoryMin = parseInt(
+        String(this.configService.get('BIOSTAR_CARD_DIRECTORY_MIN_ROWS') ?? ''),
+        10,
+      );
+      const cardDirectoryMinRows =
+        Number.isFinite(parsedDirectoryMin) && parsedDirectoryMin >= 0
+          ? parsedDirectoryMin
+          : 50;
 
       for await (const { batchRecords, batchNumber } of this.fetchBatches(
         pool,
@@ -1614,14 +1749,6 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           ) || 8,
         );
         const csnStart = Date.now();
-        // Logged in only if a row in this batch really needs a lookup; with the
-        // card directory most batches need none.
-        let csnSessionPromise: Promise<{
-          token: string;
-          sessionId: string;
-        }> | null = null;
-        const csnSession = () =>
-          (csnSessionPromise ??= this.biostarApiService.getApiToken());
         const csnRateLimitTracker = { count: 0 };
 
         type DasmaCsvRowInput = {
@@ -1756,37 +1883,76 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
             };
           });
 
-        const toResolveCsn = validatedRows.filter(
-          (row): row is DasmaCsvRowInput => row !== null,
+        // A row whose content has not changed is not sent, and a row that is
+        // not sent cannot blank anyone's card — so the card is looked up only
+        // for rows about to go out without one stored. Rendering with the
+        // stored card first is what makes that ordering possible: an unchanged
+        // person renders exactly what was last delivered.
+        const withStoredCsn = validatedRows
+          .filter((row): row is DasmaCsvRowInput => row !== null)
+          .map(
+            ({
+              userId,
+              rowBase,
+            }): {
+              userId: string;
+              row: Record<string, string>;
+            } => ({
+              userId,
+              row: {
+                ...rowBase,
+                csn:
+                  this.normalizeUniqueIdValue(
+                    existingMap.get(userId)?.Unique_ID,
+                  ) ?? '',
+              },
+            }),
+          );
+        const needsCard = withStoredCsn.filter(
+          ({ userId, row }) =>
+            row.csn === '' &&
+            existingMap.get(userId)?.biostar_row_hash !==
+              this.hashCsvRow(row, dasmaHeaders),
         );
+        const useDirectory = needsCard.length > cardDirectoryMinRows;
+        if (useDirectory && cardDirectory === undefined) {
+          cardDirectory = await this.loadCardDirectory(pushSession);
+        }
 
         /** Cards learned from BioStar this batch, to write back once. */
         const csnToPersist: { userId: string; csn: string }[] = [];
-        const resolvedRows = await this.commonService.runWithConcurrency(
-          toResolveCsn,
+        const cardAnswers = new Map<
+          string,
+          { csn: string; unresolved: boolean }
+        >();
+        await this.commonService.runWithConcurrency(
+          needsCard,
           csnConcurrency,
-          async ({
-            userId,
-            rowBase,
-          }): Promise<{
-            row: Record<string, string>;
-            unresolved: boolean;
-          }> => {
+          async ({ userId }) => {
             const { csn, unresolved, fetched, lookedUp } =
               await this.resolveDasmaCsnForCsvRow(
                 userId,
                 existingMap.get(userId),
-                csnSession,
+                pushSession,
                 csnRateLimitTracker,
-                cardDirectory,
+                useDirectory ? (cardDirectory ?? null) : null,
               );
             if (lookedUp) csnApiLookups++;
             if (fetched) {
               csnToPersist.push({ userId, csn });
             }
-            return { row: { ...rowBase, csn }, unresolved };
+            cardAnswers.set(userId, { csn, unresolved });
           },
         );
+        const resolvedRows = withStoredCsn.map(({ userId, row }) => {
+          const answer = cardAnswers.get(userId);
+          return answer
+            ? {
+                row: { ...row, csn: answer.csn },
+                unresolved: answer.unresolved,
+              }
+            : { row, unresolved: false };
+        });
 
         // Write back every card BioStar just told us about. Without this the
         // same lookup repeats on every run for every card-less student, and a
@@ -1917,6 +2083,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           this.logger.error(
             `[Batch ${batchNumber}] CSV file was not created or is empty. Aborting upload for this batch.`,
           );
+          uploadFailedBatches++;
           failedRecordsAll.push({
             batchNumber,
             error: 'CSV file not created or empty',
@@ -1945,8 +2112,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         let importStart = 0;
         while (retries > 0) {
           try {
-            const { token, sessionId } =
-              await this.biostarApiService.getApiToken();
+            const { token, sessionId } = await pushSession(retries < 3);
             const apiBaseUrl = this.biostarApiService.getApiBaseUrl();
             const uploadFormData = new FormData();
             uploadFormData.append('file', fs.createReadStream(csvFilePath));
@@ -2251,6 +2417,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               this.logger.warn(
                 `[Batch ${batchNumber}] Final upload attempt failed: ${errorMessage}`,
               );
+              uploadFailedBatches++;
               failedRecordsAll.push({
                 batchNumber,
                 error: 'CSV upload failed after all retries',
@@ -2342,7 +2509,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       const remarksStart = Date.now();
       const sweptThisRun = await this.sweepUncheckedRemarks(
         jobName,
-        cardDirectory,
+        cardDirectory ?? null,
+        pushSession,
       );
 
       // Everything owed: removed this run, anything a previous run failed to
@@ -2432,6 +2600,20 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         `[Dasma] Run summary: seenFromSource=${seenIdsFromSource.size}, activeUploadedToBiostar=${totalActiveExported}, archivedSkippedFromCsv=${totalArchivedDisabledExported}, archivedByReconciliation=${archivedByReconciliation}`,
       );
       await this.commonService.cleanupTempFiles(tempDir);
+
+      // Remember the source snapshot only when every changed row reached
+      // BioStar or was definitively rejected by it; anything that may still
+      // need sending keeps the next run from skipping.
+      const pushClean =
+        biostarUploadsHalted === null &&
+        partialImportUnparsed.length === 0 &&
+        csnUnresolvedAll.length === 0 &&
+        uploadFailedBatches === 0 &&
+        csvImportOutcomes.every(
+          (o) => o.outcome === 'success' || o.outcome === 'partial',
+        );
+      pushState.sourceLastWrite = pushClean ? sourceLastWrite : null;
+      await this.biostarSyncStateRepository.save(pushState);
 
       const scheduleNumber = parseInt(jobName.replace('sync-', ''));
       if (!isNaN(scheduleNumber)) {
@@ -2554,44 +2736,38 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     }
   }
 
+  /**
+   * The whole source in one query, then handed out in import-sized pages.
+   *
+   * OFFSET paging made SQL Server sort the entire table once per page: 201
+   * sorts for 20,000 rows, each queueing for a memory grant
+   * (RESOURCE_SEMAPHORE) on the sandbox's SQL Express — 19 minutes of an
+   * 81-minute run on 2026-09-23, where one query reads the same rows in
+   * 0.8 s. Ordering by every column, not ID alone, makes a duplicated ID
+   * resolve to the same winner on every run.
+   */
   private async *fetchBatches(
     pool: sql.ConnectionPool,
     hasIsArchivedColumn: boolean,
     batchSize: number,
     timingsMs: Record<string, number>,
   ) {
-    let offset = 0;
-    let batchNumber = 0;
+    void hasIsArchivedColumn; // both table shapes select the same columns
     const tableName = this.configService.get('SOURCE_DB_TABLE');
-
-    while (true) {
-      batchNumber++;
-      let query: string;
-      const columns =
-        'ID, LastName, FirstName, MiddleName, Suffix, [Group], Status, Remarks, IsArchived';
-      if (hasIsArchivedColumn) {
-        // Fetch both active and archived rows; archived rows exported as disabled via date-window
-        query = `
-          SELECT ${columns} FROM ${tableName}
-          ORDER BY ID
-          OFFSET ${offset} ROWS
-          FETCH NEXT ${batchSize} ROWS ONLY
-        `;
-      } else {
-        query = `
-          SELECT ${columns} FROM ${tableName}
-          ORDER BY ID
-          OFFSET ${offset} ROWS
-          FETCH NEXT ${batchSize} ROWS ONLY
-        `;
-      }
-
-      const queryStart = Date.now();
-      const result = await pool.request().query(query);
-      this.commonService.addElapsed(timingsMs, 'sourceRead', queryStart);
-      if (result.recordset.length === 0) break;
-      yield { batchRecords: result.recordset, batchNumber };
-      offset += batchSize;
+    const columns =
+      'ID, LastName, FirstName, MiddleName, Suffix, [Group], Status, Remarks, IsArchived';
+    const queryStart = Date.now();
+    const result = await pool
+      .request()
+      .query(`SELECT ${columns} FROM ${tableName} ORDER BY ${columns}`);
+    this.commonService.addElapsed(timingsMs, 'sourceRead', queryStart);
+    const rows = result.recordset;
+    for (
+      let i = 0, batchNumber = 1;
+      i < rows.length;
+      i += batchSize, batchNumber++
+    ) {
+      yield { batchRecords: rows.slice(i, i + batchSize), batchNumber };
     }
   }
 
