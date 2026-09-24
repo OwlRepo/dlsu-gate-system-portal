@@ -511,6 +511,33 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
     expect(biostar.lastUploadText()).toContain('\n12100001,');
   }, 120000);
 
+  it('regression: the synced-records file lists only the rows BioStar accepted', async () => {
+    const logged = jest
+      .spyOn(DatabaseSyncCommonService.prototype, 'logSyncedRecords')
+      .mockResolvedValue(undefined);
+    try {
+      sourceRows = [
+        sourceRow(),
+        sourceRow({ ID: '12100002', FirstName: 'Maria' }),
+      ];
+      biostar.scenario.importCode = '1';
+      biostar.scenario.importFailedRows = ['2'];
+      biostar.scenario.errorCsv =
+        '\uFEFFuser_id,name,Error_Description\r\n12100001,Dela Cruz Juan,Rejected.\r\n';
+
+      await service.executeDatabaseSync('e2e-1');
+
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(
+        (logged.mock.calls[0][0] as Record<string, string>[]).map(
+          (r) => r.user_id,
+        ),
+      ).toEqual(['12100002']);
+    } finally {
+      logged.mockRestore();
+    }
+  }, 120000);
+
   // BioStar's error file cannot always be trusted to name our rows — a live
   // capture on 2026-09-10 held a line mis-split on an embedded newline. When it
   // does not, the whole batch goes again: the one direction that cannot lose a
