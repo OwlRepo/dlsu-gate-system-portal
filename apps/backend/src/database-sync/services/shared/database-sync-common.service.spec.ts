@@ -1,5 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import * as fs from 'fs';
+import * as path from 'path';
 import { DatabaseSyncCommonService } from './database-sync-common.service';
 import { Student } from '../../../students/entities/student.entity';
 
@@ -347,5 +349,91 @@ describe('DatabaseSyncCommonService — phase timings', () => {
     const timings: Record<string, number> = { csvUpload: 200 };
     service.addElapsed(timings, 'csvUpload', 1000);
     expect(timings).toEqual({ csvUpload: 700 });
+  });
+});
+
+describe('DatabaseSyncCommonService — synced-records file', () => {
+  let service: DatabaseSyncCommonService;
+  const jsonDir = path.join(process.cwd(), 'logs', 'synced-records', 'json');
+  const csvDir = path.join(process.cwd(), 'logs', 'synced-records', 'csv');
+  const day = new Date().toISOString().split('T')[0].replace(/-/g, '_');
+  const prefix = `synced_zztest1_${day}`;
+  const jsonFile = path.join(jsonDir, `${prefix}.json`);
+  const csvFile = path.join(csvDir, `${prefix}.csv`);
+  const row = (user_id: string) => ({
+    user_id,
+    name: 'Santos Juan',
+    department: 'DLSU',
+    user_title: 'Student',
+    user_group: 'All Users',
+    remarks: '',
+    csn: '',
+    start_datetime: '2026-09-23 00:00:00.000',
+    expiry_datetime: '2036-09-24 00:00:00.000',
+    original_campus_entry: 'Y',
+  });
+  const ids = () =>
+    (
+      JSON.parse(fs.readFileSync(jsonFile, 'utf8')) as { user_id: string }[]
+    ).map((r) => r.user_id);
+  const cleanUp = () => {
+    for (const dir of [jsonDir, csvDir]) {
+      if (!fs.existsSync(dir)) continue;
+      for (const f of fs.readdirSync(dir)) {
+        if (f.startsWith(prefix)) fs.unlinkSync(path.join(dir, f));
+      }
+    }
+  };
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DatabaseSyncCommonService,
+        { provide: ConfigService, useValue: { get: jest.fn() } },
+      ],
+    }).compile();
+    service = module.get<DatabaseSyncCommonService>(DatabaseSyncCommonService);
+    cleanUp();
+  });
+
+  afterEach(cleanUp);
+
+  it('error: moves an unreadable day file aside instead of overwriting it', async () => {
+    fs.mkdirSync(jsonDir, { recursive: true });
+    fs.writeFileSync(jsonFile, '[{"user_id":"91200011"');
+
+    await service.logSyncedRecords([row('91200012')], 'zztest-1', true);
+
+    expect(ids()).toEqual(['91200012']);
+    expect(
+      fs
+        .readdirSync(jsonDir)
+        .some((f) => f.startsWith(`${prefix}.unreadable-`)),
+    ).toBe(true);
+  });
+
+  it('edge: writes the CSV header once when a later sync adds to the day', async () => {
+    await service.logSyncedRecords([row('91200011')], 'zztest-1', true);
+    await service.logSyncedRecords([row('91200012')], 'zztest-1', true);
+
+    const lines = fs.readFileSync(csvFile, 'utf8').trim().split('\n');
+    expect(lines).toHaveLength(3);
+    expect(lines[0].startsWith('user_id,')).toBe(true);
+  });
+
+  // Measured 2026-09-24: each write replaced the day's file, so only the
+  // last batch of the day survived.
+  it('regression: a later Dasma sync the same day adds to the file instead of replacing it', async () => {
+    await service.logSyncedRecords([row('91200011')], 'zztest-1', true);
+    await service.logSyncedRecords([row('91200012')], 'zztest-1', true);
+
+    expect(ids()).toEqual(['91200011', '91200012']);
+  });
+
+  it('happy: the main path still replaces its file on each write', async () => {
+    await service.logSyncedRecords([row('91200011')], 'zztest-1');
+    await service.logSyncedRecords([row('91200012')], 'zztest-1');
+
+    expect(ids()).toEqual(['91200012']);
   });
 });

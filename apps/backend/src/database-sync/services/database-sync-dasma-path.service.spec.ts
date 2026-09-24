@@ -2890,6 +2890,58 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       expect(biostarApi.getApiToken).toHaveBeenCalledTimes(1);
     });
+
+    it('error: a synced-records file that cannot be written does not fail the sync', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
+      (commonService.logSyncedRecords as jest.Mock).mockRejectedValueOnce(
+        new Error('ENOSPC: no space left on device'),
+      );
+      sourceRows = threeRows();
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await expect(service.executeDatabaseSync('run-1')).resolves.toMatchObject(
+        {
+          success: true,
+        },
+      );
+      expect(importCalls()).toBe(1);
+    });
+
+    it('edge: a sync that sends nothing writes no synced-records file', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
+      sourceRows = threeRows();
+      setClock('2026-08-26T08:00:00+08:00');
+      await service.executeDatabaseSync('run-1');
+      (commonService.logSyncedRecords as jest.Mock).mockClear();
+
+      setClock('2026-08-27T08:00:00+08:00');
+      await service.executeDatabaseSync('run-2');
+
+      expect(commonService.logSyncedRecords).not.toHaveBeenCalled();
+    });
+
+    // Measured 2026-09-24: the Dasma path stopped writing this file on
+    // 2026-09-23 (66ca157); before that each batch overwrote the last.
+    it('regression: records every user BioStar accepted in one synced-records write per sync', async () => {
+      (sql.connect as jest.Mock).mockResolvedValue(poolAnswering(null));
+      CONFIG.BIOSTAR_IMPORT_MAX_ROWS = '2';
+      sourceRows = [
+        ...threeRows(),
+        sourceRow({ ID: '12100004' }),
+        sourceRow({ ID: '12100005' }),
+      ];
+      setClock('2026-08-26T08:00:00+08:00');
+
+      await service.executeDatabaseSync('run-1');
+
+      const calls = (commonService.logSyncedRecords as jest.Mock).mock.calls;
+      expect(calls).toHaveLength(1);
+      expect(
+        (calls[0][0] as Record<string, string>[]).map((r) => r.user_id),
+      ).toEqual(['12100001', '12100002', '12100003', '12100004', '12100005']);
+      expect(calls[0][1]).toBe('run-1');
+      expect(calls[0][2]).toBe(true);
+    });
   });
 
   // =====================================================================
