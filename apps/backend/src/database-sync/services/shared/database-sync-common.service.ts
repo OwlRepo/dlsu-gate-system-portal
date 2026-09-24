@@ -750,19 +750,33 @@ export class DatabaseSyncCommonService {
       }));
     }
 
+    fs.mkdirSync(this.syncedJsonDir, { recursive: true });
+    fs.mkdirSync(this.syncedCsvDir, { recursive: true });
     const jsonFilePath = path.join(
       this.syncedJsonDir,
       `synced_${syncType}_${dateString}.json`,
     );
-    fs.writeFileSync(jsonFilePath, JSON.stringify(rowsForLog, null, 2));
-
     const csvFilePath = path.join(
       this.syncedCsvDir,
       `synced_${syncType}_${dateString}.csv`,
     );
+
+    // The Dasma file is the day's record of who BioStar updated, so each sync
+    // adds to it. Replacing it on every write kept only the last batch.
+    const addToDay = auditAsDasmaBulkUpload;
+    const earlier = addToDay ? this.readSyncedDayFile(jsonFilePath) : [];
+    // Written aside, then renamed: an interrupted write never leaves a torn file.
+    const jsonTempPath = `${jsonFilePath}.tmp`;
+    fs.writeFileSync(
+      jsonTempPath,
+      JSON.stringify([...earlier, ...rowsForLog], null, 2),
+    );
+    fs.renameSync(jsonTempPath, jsonFilePath);
+
     const csvWriter = createObjectCsvWriter({
       path: csvFilePath,
       header: csvHeaders,
+      append: addToDay && fs.existsSync(csvFilePath),
     });
 
     await csvWriter.writeRecords(rowsForLog);
@@ -770,6 +784,30 @@ export class DatabaseSyncCommonService {
     this.logger.log(`Saved ${rowsForLog.length} synced records to:`);
     this.logger.log(`- JSON: ${jsonFilePath}`);
     this.logger.log(`- CSV: ${csvFilePath}`);
+  }
+
+  /**
+   * Rows already in today's Dasma synced-records file. A file that is not a
+   * readable list is moved aside, never overwritten, so no day's record is
+   * lost to one bad write.
+   */
+  private readSyncedDayFile(jsonFilePath: string): Record<string, unknown>[] {
+    if (!fs.existsSync(jsonFilePath)) return [];
+    try {
+      const parsed: unknown = JSON.parse(fs.readFileSync(jsonFilePath, 'utf8'));
+      if (Array.isArray(parsed)) return parsed as Record<string, unknown>[];
+    } catch {
+      // Not JSON; handled below exactly like a non-list.
+    }
+    const aside = jsonFilePath.replace(
+      /\.json$/,
+      `.unreadable-${Date.now()}.json`,
+    );
+    fs.renameSync(jsonFilePath, aside);
+    this.logger.warn(
+      `Synced-records file was not a readable list; kept it as ${aside} and started a new one`,
+    );
+    return [];
   }
 
   getLogDir(): string {

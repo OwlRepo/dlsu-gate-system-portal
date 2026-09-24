@@ -1482,6 +1482,8 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       const importQueue = new Map<string, Record<string, string>>();
       const pendingHashes = new Map<string, string>();
       let importNumber = 0;
+      /** Rows BioStar accepted this run: the day's synced-records file. */
+      const deliveredRows: Record<string, string>[] = [];
       const takeImport = () => {
         const rows = [...importQueue.values()].slice(0, importMaxRows);
         for (const row of rows) importQueue.delete(row.user_id);
@@ -1685,6 +1687,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 rowHashes,
                 timingsMs,
               );
+              deliveredRows.push(...formattedRecords);
             } else if (outcome === 'timeout') {
               biostarUploadsHalted = { afterBatch: batchNumber, taskId };
               this.logger.warn(
@@ -1801,11 +1804,11 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 }
                 if (rejected) {
                   const rejectedSet = new Set(rejected);
-                  await this.persistRowHashes(
-                    formattedRecords.filter((r) => !rejectedSet.has(r.user_id)),
-                    rowHashes,
-                    timingsMs,
+                  const accepted = formattedRecords.filter(
+                    (r) => !rejectedSet.has(r.user_id),
                   );
+                  await this.persistRowHashes(accepted, rowHashes, timingsMs);
+                  deliveredRows.push(...accepted);
                   csvRowsRejectedByBiostar.push(...rejected);
                   this.logger.warn(
                     `[Batch ${batchNumber}] Partial import: ${rejected.length} row(s) rejected by BioStar will be re-sent next run; the other ${formattedRecords.length - rejected.length} are recorded as delivered`,
@@ -2558,6 +2561,25 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         await uploadImport(takeImport(), pendingHashes);
       }
       await this.commonService.cleanupTempFiles(tempDir);
+
+      // The day's record of who BioStar updated (logs/synced-records), written
+      // once per sync and only with rows BioStar confirmed. A failed write
+      // costs that record, never the sync: BioStar already has the rows.
+      if (deliveredRows.length > 0) {
+        try {
+          await this.commonService.logSyncedRecords(
+            deliveredRows,
+            jobName,
+            true,
+          );
+        } catch (error) {
+          this.logger.warn(
+            `[Dasma] Could not write the synced-records file: ${
+              (error as Error)?.message ?? String(error)
+            }`,
+          );
+        }
+      }
 
       this.logger.log('All batches processed, performing final cleanup...');
 
