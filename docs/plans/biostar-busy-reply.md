@@ -406,3 +406,27 @@ Push: fast-forward `main`.
 | A busy card directory treated as complete | `BS` regression → `null` → per-user lookups |
 
 Rollback: `git revert -m 1 <merge>`; no data repair.
+
+---
+
+### Amendment (approved by Romeo 2026-09-25: "ok proceed"): page the user list by `user_id`
+
+- **Evidence (live, read-only, 2026-09-25).**
+  - `GET /api/users?limit=500&order_by=name:true` → 62 s, then code 4.
+  - Same with `limit=100` → 63 s.
+  - `order_by=user_id:false` (the documented default, per Suprema's "How To View A List Of
+    Users") → 500 rows in 1.2 s; 50 rows in 0.3 s.
+  - Conclusion: the name sort is what drives BioStar into its timeout.
+- **Change.** `order_by: 'name:true'` → `'user_id:false'` in the `D` pull and in
+  `B.listUserCardCounts`. `user_id` is unique, so pages cannot overlap or skip users, which also
+  removes the incomplete card directory measured in L4. The retry stays as the safety net.
+  - Out of scope, left as is: `main-path` and the `scripts/` tools.
+- **Tests (RED first).**
+  - `BS`, before `it('happy: maps every listed user to their card count across pages'`:
+    `regression: pages the user list by user_id, the order BioStar serves fast`. It asserts the
+    `axios.get` params carry `order_by: 'user_id:false'`.
+  - `E2E`, before `    // Defence in depth, not the mechanism: drift detection is what catches a`:
+    `regression: the pull asks for the user list in user_id order`. It asserts every
+    `listQueries()` URL matches `/order_by=user_id(%3A|:)false/`.
+- **Expected counts.** Unit 336 + 1 = **337**; e2e 58 + 1 = **59**.
+- **Live check.** Same as above: the 6 photos arrive, and there are no busy warnings on the list.

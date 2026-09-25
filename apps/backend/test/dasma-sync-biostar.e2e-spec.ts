@@ -1263,6 +1263,24 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       }, 90000);
     });
 
+    // Measured 2026-09-25: sorting by name made BioStar time out on a busy
+    // server; the documented default, user_id, answered in about a second.
+    it('regression: the pull asks for the user list in user_id order', async () => {
+      biostar.listPages = [{ total: 1, rows: [listRow()] }];
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        photo: '/9j/A',
+        cards: [{ card_id: '5551234' }],
+      };
+
+      await service.syncFromBiostar('e2e-order-1');
+
+      expect(listQueries().length).toBeGreaterThan(0);
+      for (const q of listQueries()) {
+        expect(q).toMatch(/order_by=user_id(%3A|:)false/);
+      }
+    }, 90000);
+
     // Defence in depth, not the mechanism: drift detection is what catches a
     // photo upload. This catches whatever changed in a detail that no list
     // field exposes at all.

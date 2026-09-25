@@ -230,7 +230,10 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         const params: Record<string, string | number> = {
           limit,
           offset,
-          order_by: 'name:true',
+          // user_id is BioStar's documented default and a unique key: pages
+          // never overlap or skip anyone. Sorting by name took 62 s on a busy
+          // server and ended in the code-4 reply (measured 2026-09-25).
+          order_by: 'user_id:false',
         };
         if (listGroupId) {
           params.group_id = listGroupId;
