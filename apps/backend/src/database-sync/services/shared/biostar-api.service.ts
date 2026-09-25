@@ -381,7 +381,7 @@ export class BiostarApiService {
     try {
       for (let offset = 0; ; offset += pageSize) {
         const response = await axios.get(`${this.apiBaseUrl}/api/users`, {
-          params: { limit: pageSize, offset, order_by: 'name:true' },
+          params: { limit: pageSize, offset, order_by: 'user_id:false' },
           headers: {
             Authorization: `Bearer ${token}`,
             'bs-session-id': sessionId,
