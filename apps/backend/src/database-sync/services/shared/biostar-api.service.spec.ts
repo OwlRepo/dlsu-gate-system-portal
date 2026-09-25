@@ -370,6 +370,40 @@ describe('BiostarApiService.fetchBiostarUserDetail', () => {
   const fetch = () =>
     service.fetchBiostarUserDetail('ZZTEST001', 't0ken', 's3ss10n', 1);
 
+  // Measured 2026-09-25: a busy BioStar answers HTTP 200 with this envelope
+  // and no User.
+  const busy = {
+    status: 200,
+    data: {
+      Response: {
+        code: '4',
+        message: 'Synced Web Request is not respond in timeout period',
+      },
+    },
+  };
+
+  it('error: a busy reply is not an answer about the user', async () => {
+    (axios.get as jest.Mock).mockResolvedValueOnce(busy);
+
+    await expect(fetch()).resolves.toEqual({
+      detail: null,
+      status: 200,
+      definitive: false,
+    });
+  });
+
+  it('edge: a user whose detail comes without a User wrapper is still read', async () => {
+    (axios.get as jest.Mock).mockResolvedValueOnce({
+      status: 200,
+      data: { user_id: 'ZZTEST001', photo: '/9j/X' },
+    });
+
+    const result = await fetch();
+
+    expect(result.definitive).toBe(true);
+    expect(result.detail?.photo).toBe('/9j/X');
+  });
+
   it('returns the user and status 200 when BioStar has them', async () => {
     (axios.isAxiosError as unknown as jest.Mock) = jest.fn(() => false);
     (axios.get as jest.Mock).mockResolvedValue({
@@ -474,6 +508,18 @@ describe('BiostarApiService — quiet, list-based lookups', () => {
 
   it('error: returns null when a page of the user list cannot be read', async () => {
     (axios.get as jest.Mock).mockRejectedValueOnce(httpError(500));
+
+    await expect(
+      service.listUserCardCounts('t0ken', 's3ss10n'),
+    ).resolves.toBeNull();
+  });
+
+  // Measured 2026-09-25: read as an empty list, a busy reply made every
+  // card-holder look card-less.
+  it('regression: a busy user list is no directory at all', async () => {
+    (axios.get as jest.Mock).mockResolvedValueOnce({
+      data: { Response: { code: '4' } },
+    });
 
     await expect(
       service.listUserCardCounts('t0ken', 's3ss10n'),
@@ -587,6 +633,16 @@ describe('BiostarApiService.listAuditPhotoChanges', () => {
     (axios.post as jest.Mock).mockRejectedValueOnce(
       new Error('socket hang up'),
     );
+
+    await expect(
+      reader.listAuditPhotoChanges('t0ken', 's3ss10n', since, until),
+    ).resolves.toBeNull();
+  });
+
+  it('regression: a busy audit reply leaves the photo changes unknown', async () => {
+    (axios.post as jest.Mock).mockResolvedValueOnce({
+      data: { Response: { code: '4' } },
+    });
 
     await expect(
       reader.listAuditPhotoChanges('t0ken', 's3ss10n', since, until),
