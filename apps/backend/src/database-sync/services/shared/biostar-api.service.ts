@@ -4,6 +4,17 @@ import axios from 'axios';
 import * as https from 'https';
 
 /**
+ * True when BioStar sent an error envelope instead of data: HTTP 200 with a
+ * non-zero Response.code. Measured 2026-09-25: code "4", "Synced Web Request
+ * is not respond in timeout period", when BioStar is too busy to answer.
+ */
+export function isBiostarErrorReply(data: unknown): boolean {
+  const code = (data as { Response?: { code?: unknown } } | null | undefined)
+    ?.Response?.code;
+  return code !== undefined && code !== null && String(code) !== '0';
+}
+
+/**
  * BioStar's user list reduced to card counts. `complete` is false when the
  * list held fewer distinct users than BioStar reported — measured 2026-09-23
  * at 19,653 users — so a user missing from `counts` is unknown, not absent.
@@ -261,6 +272,20 @@ export class BiostarApiService {
         );
 
         const data = response.data;
+        // A busy BioStar says nothing about this person. Reading its reply as
+        // the detail meant "no card, no photo": a blank card could go out and a
+        // stored photo could be erased. Retried, then reported as no answer.
+        if (!data?.User && isBiostarErrorReply(data)) {
+          lastStatus = response.status ?? 200;
+          if (attempt < maxRetries - 1) {
+            await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+            continue;
+          }
+          this.logger.warn(
+            `[Dasma Biostar] BioStar gave no answer for user ${userId} after ${attempt + 1} attempt(s): ${JSON.stringify(data?.Response ?? null)}`,
+          );
+          return { detail: null, status: lastStatus, definitive: false };
+        }
         const user = data?.User ?? data;
         return {
           detail: (user && typeof user === 'object' ? user : {}) as Record<
@@ -366,8 +391,16 @@ export class BiostarApiService {
           timeout: 120000,
         });
         const collection = response.data?.UserCollection;
-        const rows = (collection?.rows ?? []) as Record<string, unknown>[];
-        const total = parseInt(String(collection?.total ?? 0), 10) || 0;
+        // No list is no directory: reading it as zero users would mark every
+        // card-holder card-less and let a blank card through.
+        if (!collection) {
+          this.logger.warn(
+            `[Dasma Biostar] BioStar returned no user list (${JSON.stringify(response.data?.Response ?? null)}); card lookups fall back to one request per user`,
+          );
+          return null;
+        }
+        const rows = (collection.rows ?? []) as Record<string, unknown>[];
+        const total = parseInt(String(collection.total ?? 0), 10) || 0;
         for (const row of rows) {
           if (row.user_id == null) continue;
           counts.set(
@@ -445,6 +478,12 @@ export class BiostarApiService {
             timeout: 120000,
           },
         );
+        if (isBiostarErrorReply(response.data)) {
+          this.logger.warn(
+            `[Dasma Biostar] BioStar did not answer the audit search (${JSON.stringify(response.data?.Response ?? null)}); photo replacements wait for the next run`,
+          );
+          return null;
+        }
         const rows = (response.data?.AuditCollection?.rows ?? []) as Record<
           string,
           unknown

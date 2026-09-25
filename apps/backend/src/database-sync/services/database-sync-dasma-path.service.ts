@@ -39,6 +39,9 @@ const CSV_IMPORT_TIMEOUT_MS = 10 * 60 * 1000;
 /** The audit window reaches back this far past the last clean pull. */
 const AUDIT_OVERLAP_MS = 5 * 60 * 1000;
 
+/** Times the user list is asked for when BioStar answers "busy". */
+const BIOSTAR_BUSY_ATTEMPTS = 3;
+
 @Injectable()
 export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
   private readonly logger = new Logger(DatabaseSyncDasmaPathService.name);
@@ -209,6 +212,14 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
     // A run resumed past the start never visits the earlier pages, so it
     // cannot act on audit-named users there and must not close the window.
     const walksWholeList = offset === 0;
+    const parsedBusyRetryMs = parseInt(
+      String(this.configService.get('BIOSTAR_BUSY_RETRY_MS') ?? ''),
+      10,
+    );
+    const busyRetryMs =
+      Number.isFinite(parsedBusyRetryMs) && parsedBusyRetryMs >= 0
+        ? parsedBusyRetryMs
+        : 5000;
 
     this.logger.log(
       `[Dasma Biostar] Starting sync: deepPass=${deepPass}, group=${listGroupId || 'all'}, candidateFilter=${candidateFilterOff ? 'off' : 'photo-or-card'}, lastModifiedCursor=${state.lastModifiedCursor ?? 'none'}, lastSuccessAt=${state.lastSuccessAt?.toISOString() ?? 'never'}, lastFullSyncAt=${state.lastFullSyncAt?.toISOString() ?? 'never'}`,
@@ -225,24 +236,40 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           params.group_id = listGroupId;
         }
         const listStart = Date.now();
-        const response = await axios.get(`${apiBaseUrl}/api/users`, {
-          params,
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'bs-session-id': sessionId,
-            accept: 'application/json',
-          },
-          httpsAgent: new https.Agent({
-            rejectUnauthorized: false,
-          }),
-          timeout: 120000,
-        });
+        const fetchPage = () =>
+          axios.get(`${apiBaseUrl}/api/users`, {
+            params,
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'bs-session-id': sessionId,
+              accept: 'application/json',
+            },
+            httpsAgent: new https.Agent({
+              rejectUnauthorized: false,
+            }),
+            timeout: 120000,
+          });
+        // A busy BioStar answers HTTP 200 with Response.code "4" and no list
+        // (measured 2026-09-25). It means "ask again", so the page is retried
+        // before the run gives up; one busy moment used to end the whole pull.
+        let response = await fetchPage();
+        for (
+          let attempt = 1;
+          !response.data?.UserCollection && attempt < BIOSTAR_BUSY_ATTEMPTS;
+          attempt++
+        ) {
+          this.logger.warn(
+            `[Dasma Biostar] BioStar did not return the user list at offset=${offset} (attempt ${attempt}/${BIOSTAR_BUSY_ATTEMPTS}): ${JSON.stringify(response.data?.Response ?? null)}`,
+          );
+          await new Promise((r) => setTimeout(r, busyRetryMs * attempt));
+          response = await fetchPage();
+        }
 
         this.commonService.addElapsed(timingsMs, 'listFetch', listStart);
         const userCollection = response.data?.UserCollection;
         if (!userCollection) {
           throw new BadRequestException(
-            'Invalid response format from Biostar API',
+            `Invalid response format from Biostar API at offset=${offset}: ${JSON.stringify(response.data?.Response ?? null)}`,
           );
         }
 
