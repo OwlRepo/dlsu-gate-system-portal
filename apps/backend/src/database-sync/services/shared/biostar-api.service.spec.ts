@@ -565,6 +565,21 @@ describe('BiostarApiService — quiet, list-based lookups', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  // Measured 2026-09-25: order_by=name:true took 62 s and ended in BioStar's
+  // busy reply; user_id:false (the documented default) served 500 rows in
+  // 1.2 s. user_id is also unique, so pages never overlap or skip anyone.
+  it('regression: pages the user list by user_id, the order BioStar serves fast', async () => {
+    (axios.get as jest.Mock).mockResolvedValueOnce(
+      page(1, [{ user_id: 'A', card_count: '0' }]),
+    );
+
+    await service.listUserCardCounts('t0ken', 's3ss10n');
+
+    expect((axios.get as jest.Mock).mock.calls[0][1].params.order_by).toBe(
+      'user_id:false',
+    );
+  });
+
   it('happy: maps every listed user to their card count across pages', async () => {
     const first = Array.from({ length: 500 }, (_, i) => ({
       user_id: String(i),
