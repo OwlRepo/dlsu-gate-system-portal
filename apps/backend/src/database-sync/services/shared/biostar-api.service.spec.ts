@@ -138,6 +138,50 @@ describe('BiostarApiService.clearUserCustomField', () => {
     expect(axios.put).not.toHaveBeenCalled();
   });
 
+  // What BioStar sends for an HTTP error, as axios hands it over.
+  const httpFailure = (status: number, code?: string) => {
+    (axios.isAxiosError as unknown as jest.Mock) = jest.fn(() => true);
+    return Object.assign(
+      new Error(`Request failed with status code ${status}`),
+      {
+        isAxiosError: true,
+        response: {
+          status,
+          data: code === undefined ? {} : { Response: { code } },
+        },
+      },
+    );
+  };
+
+  it('error: still fails on a 400 that is not "user not found"', async () => {
+    (axios.get as jest.Mock).mockRejectedValue(httpFailure(400, '1'));
+
+    await expect(clear()).resolves.toBe(false);
+  });
+
+  it('error: still fails when BioStar answers 500', async () => {
+    (axios.get as jest.Mock).mockRejectedValue(httpFailure(500));
+
+    await expect(clear()).resolves.toBe(false);
+  });
+
+  it('edge: counts a 404 for the user as nothing left to clear', async () => {
+    (axios.get as jest.Mock).mockRejectedValue(httpFailure(404));
+
+    await expect(clear()).resolves.toBe(true);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
+  // Measured 2026-09-25: archived student 91000006 is never sent to BioStar,
+  // so GET answers 400 with Response.code "201" ("User can not be found with
+  // id"), and the clear was retried as a failure on every sync.
+  it('regression: counts "user not found" (400, code 201) as nothing left to clear', async () => {
+    (axios.get as jest.Mock).mockRejectedValue(httpFailure(400, '201'));
+
+    await expect(clear()).resolves.toBe(true);
+    expect(axios.put).not.toHaveBeenCalled();
+  });
+
   it('returns false when user_custom_fields is not an array', async () => {
     (axios.get as jest.Mock).mockResolvedValue({
       data: { User: { user_id: 'ZZTEST001' } },
