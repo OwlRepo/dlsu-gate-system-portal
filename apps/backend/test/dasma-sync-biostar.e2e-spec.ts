@@ -1211,6 +1211,58 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
       expect((await byId('12100001')).Unique_ID).toBe('5551234');
     }, 120000);
 
+    // Measured 2026-09-25: BioStar answered the user list with HTTP 200 and
+    // Response.code "4" while busy. Every pull died on it, and 91000124's
+    // photo never reached PostgreSQL.
+    describe('BioStar busy reply (HTTP 200, Response.code "4")', () => {
+      beforeEach(async () => {
+        service = await makeService({ BIOSTAR_BUSY_RETRY_MS: '10' });
+      });
+
+      it('error: a pull stops after three busy answers and records no success', async () => {
+        biostar.listPages = [{ total: 1, rows: [listRow()] }];
+        biostar.scenario.listBusyReplies = 3;
+
+        await expect(service.syncFromBiostar('e2e-busy-1')).rejects.toThrow(
+          /Invalid response format/,
+        );
+
+        expect((await state()).lastSuccessAt ?? null).toBeNull();
+      }, 90000);
+
+      it('edge: a busy detail reply never erases a stored photo', async () => {
+        biostar.listPages = [{ total: 1, rows: [listRow()] }];
+        biostar.userDetails['12100001'] = {
+          user_id: '12100001',
+          photo: '/9j/KEEP',
+          cards: [{ card_id: '5551234' }],
+        };
+        await service.syncFromBiostar('e2e-busy-2');
+        biostar.scenario.auditRows = [
+          { CONTENT: 'audit.user.photo', TARGET: 'Dela Cruz, Juan(12100001)' },
+        ];
+        biostar.scenario.detailBusyReplies = 10;
+
+        await service.syncFromBiostar('e2e-busy-3').catch(() => undefined);
+
+        expect((await byId('12100001')).Photo).toBe('/9j/KEEP');
+      }, 90000);
+
+      it('regression: a pull retries a busy user list and brings the photo in', async () => {
+        biostar.listPages = [{ total: 1, rows: [listRow()] }];
+        biostar.userDetails['12100001'] = {
+          user_id: '12100001',
+          photo: '/9j/NEW',
+          cards: [{ card_id: '5551234' }],
+        };
+        biostar.scenario.listBusyReplies = 2;
+
+        await service.syncFromBiostar('e2e-busy-4');
+
+        expect((await byId('12100001')).Photo).toBe('/9j/NEW');
+      }, 90000);
+    });
+
     // Defence in depth, not the mechanism: drift detection is what catches a
     // photo upload. This catches whatever changed in a detail that no list
     // field exposes at all.

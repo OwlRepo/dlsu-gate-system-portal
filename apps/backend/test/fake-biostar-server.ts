@@ -67,7 +67,20 @@ export interface Scenario {
    * 404. The live sandbox answers 400 with Response.code "201" (2026-09-25).
    */
   missingUserAnswer?: { status: number; code: string };
+  /** GET /api/users answers "busy" (HTTP 200, Response.code "4") this many times first. */
+  listBusyReplies?: number;
+  /** GET /api/users/:id answers "busy" this many times first. */
+  detailBusyReplies?: number;
 }
+
+/** BioStar's reply when it is too busy to answer, captured live 2026-09-25. */
+const BUSY_REPLY = {
+  Response: {
+    task_id: '210',
+    code: '4',
+    message: 'Synced Web Request is not respond in timeout period',
+  },
+};
 
 export class FakeBiostarServer {
   private server: http.Server;
@@ -286,6 +299,12 @@ export class FakeBiostarServer {
 
     // --- user list -----------------------------------------------------
     if (method === 'GET' && /^\/api\/users(\?|$)/.test(url)) {
+      const listBusyLeft = this.scenario.listBusyReplies ?? 0;
+      if (listBusyLeft > 0) {
+        this.scenario.listBusyReplies = listBusyLeft - 1;
+        this.json(res, 200, BUSY_REPLY);
+        return;
+      }
       const params = new URL(url, this.baseUrl).searchParams;
       const offset = Number(params.get('offset') ?? '0');
       const page = this.listPages[Math.floor(offset / 500)] ?? {
@@ -322,6 +341,12 @@ export class FakeBiostarServer {
     if (userMatch) {
       const userId = decodeURIComponent(userMatch[1]);
       if (method === 'GET') {
+        const detailBusyLeft = this.scenario.detailBusyReplies ?? 0;
+        if (detailBusyLeft > 0) {
+          this.scenario.detailBusyReplies = detailBusyLeft - 1;
+          this.json(res, 200, BUSY_REPLY);
+          return;
+        }
         const detail = this.userDetails[userId];
         if (!detail) {
           const answer = this.scenario.missingUserAnswer ?? {
