@@ -62,6 +62,11 @@ export interface Scenario {
   putCode?: string | number | null;
   /** HTTP status for PUT. Default 200. */
   putStatus?: number;
+  /**
+   * What GET /api/users/:id answers for a user not in `userDetails`. Default
+   * 404. The live sandbox answers 400 with Response.code "201" (2026-09-25).
+   */
+  missingUserAnswer?: { status: number; code: string };
 }
 
 export class FakeBiostarServer {
@@ -319,7 +324,11 @@ export class FakeBiostarServer {
       if (method === 'GET') {
         const detail = this.userDetails[userId];
         if (!detail) {
-          this.json(res, 404, { Response: { code: '404' } });
+          const answer = this.scenario.missingUserAnswer ?? {
+            status: 404,
+            code: '404',
+          };
+          this.json(res, answer.status, { Response: { code: answer.code } });
           return;
         }
         this.json(res, 200, { User: detail });

@@ -139,6 +139,17 @@ export class BiostarApiService {
 
       return true;
     } catch (error) {
+      // BioStar does not hold this user, so there is no remark to clear and a
+      // retry could never succeed. Measured 2026-09-25: an archived student is
+      // never sent to BioStar, and GET answers 400 with Response.code "201"
+      // ("User can not be found with id").
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const code = String(error.response?.data?.Response?.code ?? '');
+        if (status === 404 || (status === 400 && code === '201')) {
+          return true;
+        }
+      }
       const message = axios.isAxiosError(error)
         ? `${error.response?.status} ${JSON.stringify(error.response?.data ?? error.message)}`
         : ((error as Error)?.message ?? String(error));

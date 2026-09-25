@@ -388,6 +388,86 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
   }, 120000);
 
   // ==================================================================
+  // Clearing a remark for a user BioStar does not hold
+  // ==================================================================
+  // Live 2026-09-25: archived student 91000006 had its remark removed. BioStar
+  // never held the user and answered GET with 400 / code 201, so the clear was
+  // retried as a failure on every sync.
+  describe('remark clear for a user BioStar does not hold', () => {
+    const removeRemarkFromArchived = async () => {
+      sourceRows = [sourceRow({ IsArchived: true, Remarks: 'Owes fee' })];
+      await service.executeDatabaseSync('e2e-1');
+      sourceRows = [sourceRow({ IsArchived: true, Remarks: null })];
+      await service.executeDatabaseSync('e2e-2');
+    };
+
+    it('error: keeps the clear pending when BioStar fails to answer (500)', async () => {
+      biostar.scenario.missingUserAnswer = { status: 500, code: '500' };
+
+      await removeRemarkFromArchived();
+
+      expect((await byId('12100001')).remarks_clear_pending).toBe(true);
+      expect(biostar.userPuts).toHaveLength(0);
+    }, 120000);
+
+    it('error: keeps the clear pending on a 400 that is not "user not found"', async () => {
+      biostar.scenario.missingUserAnswer = { status: 400, code: '1' };
+
+      await removeRemarkFromArchived();
+
+      expect((await byId('12100001')).remarks_clear_pending).toBe(true);
+    }, 120000);
+
+    it('edge: a 404 for the user finishes the clear without a PUT', async () => {
+      biostar.scenario.missingUserAnswer = { status: 404, code: '404' };
+
+      await removeRemarkFromArchived();
+
+      expect((await byId('12100001')).remarks_clear_pending).toBe(false);
+      expect(biostar.userPuts).toHaveLength(0);
+    }, 120000);
+
+    it('edge: a clear kept pending by an outage finishes once BioStar answers "not found"', async () => {
+      biostar.scenario.missingUserAnswer = { status: 500, code: '500' };
+      await removeRemarkFromArchived();
+      expect((await byId('12100001')).remarks_clear_pending).toBe(true);
+
+      biostar.scenario.missingUserAnswer = { status: 400, code: '201' };
+      await service.executeDatabaseSync('e2e-3');
+
+      expect((await byId('12100001')).remarks_clear_pending).toBe(false);
+    }, 150000);
+
+    it('regression: an archived student BioStar never held stops retrying after one sync', async () => {
+      biostar.scenario.missingUserAnswer = { status: 400, code: '201' };
+
+      await removeRemarkFromArchived();
+
+      const stored = await byId('12100001');
+      expect(stored.Remarks).toBeNull();
+      expect(stored.remarks_clear_pending).toBe(false);
+      expect(biostar.userPuts).toHaveLength(0);
+    }, 120000);
+
+    it('happy: a student BioStar holds still gets the remark cleared by PUT', async () => {
+      biostar.scenario.missingUserAnswer = { status: 400, code: '201' };
+      sourceRows = [sourceRow({ Remarks: 'Owes fee' })];
+      await service.executeDatabaseSync('e2e-1');
+      biostar.userDetails['12100001'] = {
+        user_id: '12100001',
+        user_custom_fields: [
+          { custom_field: { name: 'Remarks' }, item: 'Owes fee' },
+        ],
+      };
+      sourceRows = [sourceRow({ Remarks: null })];
+      await service.executeDatabaseSync('e2e-2');
+
+      expect(biostar.userPuts).toHaveLength(1);
+      expect((await byId('12100001')).remarks_clear_pending).toBe(false);
+    }, 120000);
+  });
+
+  // ==================================================================
   // Failure over real HTTP
   // ==================================================================
   it('retries a failed attachment upload and still imports once', async () => {
