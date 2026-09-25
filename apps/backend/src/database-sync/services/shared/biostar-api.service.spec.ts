@@ -172,6 +172,15 @@ describe('BiostarApiService.clearUserCustomField', () => {
     expect(axios.put).not.toHaveBeenCalled();
   });
 
+  // The user can leave BioStar between the GET and the PUT; the PUT then
+  // gets the same "not found" answer, and the clear is still done.
+  it('edge: counts "user not found" on the PUT as nothing left to clear', async () => {
+    (axios.get as jest.Mock).mockResolvedValue(userWithFields('Owes fee'));
+    (axios.put as jest.Mock).mockRejectedValue(httpFailure(400, '201'));
+
+    await expect(clear()).resolves.toBe(true);
+  });
+
   // Measured 2026-09-25: archived student 91000006 is never sent to BioStar,
   // so GET answers 400 with Response.code "201" ("User can not be found with
   // id"), and the clear was retried as a failure on every sync.
