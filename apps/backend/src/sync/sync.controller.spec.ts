@@ -46,7 +46,7 @@ describe('SyncController — GET /sync/students', () => {
     controller = module.get(SyncController);
   });
 
-  it('returns the card and ID number the mobile app needs, with no photo', async () => {
+  it('regression: returns the card and ID number the mobile app needs, with no photo', async () => {
     syncService.getAllStudents.mockResolvedValue({ students: [student()] });
 
     const result = await controller.getAllStudents();
@@ -57,7 +57,7 @@ describe('SyncController — GET /sync/students', () => {
     expect(result.students[0]).not.toHaveProperty('Photo');
   });
 
-  it('keeps a student whose card has not arrived yet, with an explicit null', async () => {
+  it('edge: keeps a student whose card has not arrived yet, with an explicit null', async () => {
     syncService.getAllStudents.mockResolvedValue({
       students: [student({ Unique_ID: null })],
     });

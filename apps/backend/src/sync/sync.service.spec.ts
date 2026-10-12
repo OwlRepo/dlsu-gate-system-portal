@@ -59,9 +59,7 @@ describe('SyncService.getAllStudents', () => {
   it('error: wraps a repository failure in a BadRequestException', async () => {
     studentRepository.find.mockRejectedValue(new Error('database is down'));
 
-    await expect(service.getAllStudents()).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(service.getAllStudents()).rejects.toThrow(BadRequestException);
   });
 
   it('edge: returns an empty roster as an empty array', async () => {
