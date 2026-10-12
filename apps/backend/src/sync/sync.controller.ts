@@ -24,10 +24,10 @@ export class SyncController {
   })
   // 5 minutes, not the hour this used to be.
   //
-  // This payload carries the photo the BioStar pull writes into PostgreSQL, so
-  // an hour of caching means a newly synced photo is invisible to every mobile
+  // This payload carries the card the BioStar pull writes into PostgreSQL, so
+  // an hour of caching means a newly synced card is invisible to every mobile
   // device for up to an hour — which is indistinguishable, from the device, from
-  // the photo never syncing at all. That is what the "Data Transfer" tracker
+  // the card never syncing at all. That is what the "Data Transfer" tracker
   // describes. Still cached, because the response is the entire roster and
   // serving it uncached on every pull is its own problem.
   @CacheTTL(300000)
@@ -47,7 +47,6 @@ export class SyncController {
               Name: { type: 'string', nullable: true },
               Lived_Name: { type: 'string', nullable: true },
               Remarks: { type: 'string', nullable: true },
-              Photo: { type: 'string', nullable: true },
               Campus_Entry: { type: 'string', nullable: true },
               Unique_ID: { type: 'string', nullable: true },
               isArchived: { type: 'boolean' },

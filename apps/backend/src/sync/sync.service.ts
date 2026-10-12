@@ -14,10 +14,19 @@ export class SyncService {
   ) {}
 
   async getAllStudents(): Promise<{
-    students: Student[];
+    students: Omit<Student, 'Photo'>[];
   }> {
     try {
+      // Photo is a base64 blob and dominates the payload; mobile reads it per
+      // student from GET /students/:idNumber. Selecting the other columns,
+      // rather than stripping after load, keeps the blob out of the PostgreSQL
+      // result set. Derived from entity metadata so a column added later
+      // reaches mobile without editing this list.
+      const columns = this.studentRepository.metadata.columns
+        .map((column) => column.propertyName)
+        .filter((name): name is keyof Student => name !== 'Photo');
       const students = await this.studentRepository.find({
+        select: columns,
         where: { isArchived: false },
       });
 

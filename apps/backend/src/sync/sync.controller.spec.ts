@@ -8,10 +8,10 @@ import { CACHE_TTL_KEY } from '../decorators/cache-control.decorator';
 
 /**
  * `GET /sync/students` is what the mobile app pulls, and the "Data Transfer"
- * tracker — missing ID numbers and missing user images — is filed against the
- * MOBILE module. Nothing in `src/sync/` had any test at all, so the two things
- * DLSU is actually asking about, that the payload carries the synced photo and
- * the synced card, were never pinned anywhere.
+ * tracker — missing ID numbers and missing cards — is filed against the
+ * MOBILE module. The photo is deliberately not in this payload (it is
+ * base64 and dominated the response); the per-student photo lives on
+ * `GET /students/:idNumber`.
  */
 describe('SyncController — GET /sync/students', () => {
   let controller: SyncController;
@@ -23,7 +23,6 @@ describe('SyncController — GET /sync/students', () => {
     Name: 'Dela Cruz, Juan',
     Lived_Name: null,
     Remarks: null,
-    Photo: '/9j/4AAQSkZJRgABAQAAAQ',
     Campus_Entry: 'Y',
     Unique_ID: '3492455443',
     isArchived: false,
@@ -47,27 +46,26 @@ describe('SyncController — GET /sync/students', () => {
     controller = module.get(SyncController);
   });
 
-  it('returns the synced photo and card the mobile app needs', async () => {
+  it('regression: returns the card and ID number the mobile app needs, with no photo', async () => {
     syncService.getAllStudents.mockResolvedValue({ students: [student()] });
 
     const result = await controller.getAllStudents();
 
     expect(result.students).toHaveLength(1);
-    expect(result.students[0].Photo).toBe('/9j/4AAQSkZJRgABAQAAAQ');
     expect(result.students[0].Unique_ID).toBe('3492455443');
     expect(result.students[0].ID_Number).toBe('12100001');
+    expect(result.students[0]).not.toHaveProperty('Photo');
   });
 
-  it('keeps a student whose photo has not arrived yet, with an explicit null', async () => {
+  it('edge: keeps a student whose card has not arrived yet, with an explicit null', async () => {
     syncService.getAllStudents.mockResolvedValue({
-      students: [student({ Photo: null, Unique_ID: null })],
+      students: [student({ Unique_ID: null })],
     });
 
     const result = await controller.getAllStudents();
 
-    // Omitting the keys would be indistinguishable from a truncated payload;
-    // an explicit null tells the client the person exists but has no photo.
-    expect(result.students[0]).toHaveProperty('Photo', null);
+    // Omitting the key would be indistinguishable from a truncated payload;
+    // an explicit null tells the client the person exists but has no card.
     expect(result.students[0]).toHaveProperty('Unique_ID', null);
   });
 
@@ -88,9 +86,9 @@ describe('SyncController — GET /sync/students', () => {
   });
 
   /**
-   * The roster is cached by the global interceptor. At one hour a photo that
+   * The roster is cached by the global interceptor. At one hour a card that
    * has just landed in PostgreSQL stays invisible to every mobile device for
-   * up to an hour, which looks exactly like "the image did not sync".
+   * up to an hour, which looks exactly like "the card did not sync".
    */
   it('caches the roster for no more than five minutes', () => {
     const ttl = new Reflector().get<number>(
