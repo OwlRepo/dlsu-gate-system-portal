@@ -1,5 +1,7 @@
+import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
+import * as request from 'supertest';
 
 import { SyncController } from './sync.controller';
 import { SyncService } from './sync.service';
@@ -97,5 +99,81 @@ describe('SyncController — GET /sync/students', () => {
     );
 
     expect(ttl).toBeLessThanOrEqual(300000);
+  });
+
+  it('edge: forwards the paging parameters to the service untouched', async () => {
+    syncService.getAllStudents.mockResolvedValue({ students: [] });
+
+    await controller.getAllStudents({ limit: 5, cursor: 'abc' });
+
+    expect(syncService.getAllStudents).toHaveBeenCalledWith({
+      limit: 5,
+      cursor: 'abc',
+    });
+  });
+
+  it('regression: a call with no parameters still asks the service for the whole roster', async () => {
+    syncService.getAllStudents.mockResolvedValue({ students: [] });
+
+    await controller.getAllStudents();
+
+    expect(syncService.getAllStudents).toHaveBeenCalledWith({});
+  });
+});
+
+/**
+ * The DTO spec tests the class and the tests above call the method directly,
+ * so neither would notice if the `ValidationPipe` were taken off the route —
+ * there is no global pipe — and `limit=abc` reached the service as a string.
+ */
+describe('SyncController — query validation on the real route', () => {
+  let app: INestApplication;
+  let syncService: { getAllStudents: jest.Mock };
+
+  beforeEach(async () => {
+    syncService = {
+      getAllStudents: jest.fn().mockResolvedValue({ students: [] }),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [SyncController],
+      providers: [{ provide: SyncService, useValue: syncService }],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+
+    app = module.createNestApplication();
+    await app.init();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('error: answers 400 for a non-numeric limit and never reaches the service', async () => {
+    await request(app.getHttpServer())
+      .get('/sync/students?limit=abc')
+      .expect(400);
+
+    expect(syncService.getAllStudents).not.toHaveBeenCalled();
+  });
+
+  it('error: answers 400 for a limit above 5000 and never reaches the service', async () => {
+    await request(app.getHttpServer())
+      .get('/sync/students?limit=5001')
+      .expect(400);
+
+    expect(syncService.getAllStudents).not.toHaveBeenCalled();
+  });
+
+  it('happy: hands a valid limit to the service as a number', async () => {
+    await request(app.getHttpServer())
+      .get('/sync/students?limit=25')
+      .expect(200);
+
+    expect(syncService.getAllStudents).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 25 }),
+    );
   });
 });

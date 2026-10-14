@@ -53,7 +53,7 @@ This index follows the `symbol/area → path — one-line purpose` style. It cov
 | Reports controller | `apps/backend/src/reports/reports.controller.ts` | `/reports` CRUD + `/reports/analytics/gates`, `/reports/generate-csv`. |
 | Reports gateway | `apps/backend/src/reports/reports.gateway.ts` | Socket.IO `/socket.io/`, event `stats-update`, NO auth guard, polls via `@Interval` every 1s. |
 | Report entity | `apps/backend/src/reports/entities/report.entity.ts` | `reports` table — authoritative gate access-decision log. |
-| Sync controller | `apps/backend/src/sync/sync.controller.ts` | `/sync/students`, `/sync/employees` — read-only pull endpoints. |
+| Sync controller | `apps/backend/src/sync/sync.controller.ts` | `/sync/students` (legacy full pull, or paged changes feed via `limit`/`cursor`/`since`), `/sync/employees` — read-only pull endpoints. Feed cursor codec: `sync-students-feed-token.ts`; query DTO: `dto/sync-students-query.dto.ts`. |
 | Database sync controller | `apps/backend/src/database-sync/database-sync.controller.ts` | `/database-sync/*` — schedule, sync, biostar sync, test-connection, delete-users. |
 | Database sync service | `apps/backend/src/database-sync/database-sync.service.ts` | Core sync orchestration logic. |
 | Database sync queue service | `apps/backend/src/database-sync/database-sync-queue.service.ts` | Manual-sync queue backed by `sync_queue` table. |
