@@ -1,12 +1,20 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  ValidationPipe,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SyncService } from './sync.service';
+import { SyncStudentsQueryDto } from './dto/sync-students-query.dto';
 import { CacheTTL } from '../decorators/cache-control.decorator';
 
 @ApiTags('Sync')
@@ -18,10 +26,13 @@ export class SyncController {
 
   @Get('students')
   @ApiOperation({
-    summary: 'Get all non-archived students',
+    summary: 'Get students for mobile database synchronization',
     description:
-      'Returns complete list of non-archived students for mobile database synchronization',
+      'With no parameters: the complete list of non-archived students. With limit/cursor/since: a paged changes feed. A first sync pages through non-archived students; ?since=<syncToken> returns only what changed since the previous sync, archived students included so the app can remove them. See docs/sync-students-mobile-contract.md.',
   })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'cursor', required: false, type: String })
+  @ApiQuery({ name: 'since', required: false, type: String })
   // 5 minutes, not the hour this used to be.
   //
   // This payload carries the card the BioStar pull writes into PostgreSQL, so
@@ -97,6 +108,18 @@ export class SyncController {
             },
           },
         },
+        nextCursor: {
+          type: 'string',
+          nullable: true,
+          description:
+            'Present only when a paging parameter was sent. Null on the last page.',
+        },
+        syncToken: {
+          type: 'string',
+          nullable: true,
+          description:
+            'Present only when a paging parameter was sent. Set on the last page; send it as `since` next time.',
+        },
       },
     },
   })
@@ -108,8 +131,11 @@ export class SyncController {
     status: 401,
     description: 'Unauthorized - Invalid or missing token',
   })
-  async getAllStudents() {
-    return this.syncService.getAllStudents();
+  async getAllStudents(
+    @Query(new ValidationPipe({ transform: true }))
+    query: SyncStudentsQueryDto = {},
+  ) {
+    return this.syncService.getAllStudents(query);
   }
 
   @Get('employees')
