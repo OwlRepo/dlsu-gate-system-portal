@@ -98,4 +98,23 @@ describe('SyncController — GET /sync/students', () => {
 
     expect(ttl).toBeLessThanOrEqual(300000);
   });
+
+  it('edge: forwards the paging parameters to the service untouched', async () => {
+    syncService.getAllStudents.mockResolvedValue({ students: [] });
+
+    await controller.getAllStudents({ limit: 5, cursor: 'abc' });
+
+    expect(syncService.getAllStudents).toHaveBeenCalledWith({
+      limit: 5,
+      cursor: 'abc',
+    });
+  });
+
+  it('regression: a call with no parameters still asks the service for the whole roster', async () => {
+    syncService.getAllStudents.mockResolvedValue({ students: [] });
+
+    await controller.getAllStudents();
+
+    expect(syncService.getAllStudents).toHaveBeenCalledWith({});
+  });
 });
