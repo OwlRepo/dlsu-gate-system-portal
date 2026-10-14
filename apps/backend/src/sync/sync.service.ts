@@ -97,6 +97,14 @@ export class SyncService {
       if (position === null) {
         throw new BadRequestException('Invalid cursor or since token');
       }
+      // A first-sync cursor is a position in the middle of a pull, not a
+      // finished one. Taken as `since`, it would start the delta mid-roster and
+      // hand back a syncToken that tells mobile it is current.
+      if (since !== undefined && position.mode !== 'd') {
+        throw new BadRequestException(
+          'since needs the syncToken of a finished sync, not a cursor',
+        );
+      }
     }
 
     // A first sync has nobody to delete locally, so archived students are left

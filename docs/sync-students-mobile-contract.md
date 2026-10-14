@@ -124,7 +124,7 @@ For each student in the response:
 - `isArchived: true` → **delete** that student from your local table (match on `ID_Number`).
 - otherwise → **upsert** (insert, or update the row with the same `ID_Number`).
 
-Then save the returned `syncToken`. If `nextCursor` is not `null`, request more pages with `&cursor=` exactly as in 4A (leave out `since` on those). If nothing changed you still get `students: []` or just a few repeated rows, and a `syncToken` to save.
+Then save the returned `syncToken`. If `nextCursor` is not `null`, request more pages with `&cursor=` exactly as in 4A (leave out `since` on those). If nothing changed you still get the last student or a few repeated ones (never an empty list unless there are no students at all), and a `syncToken` to save.
 
 **Why you may see students you already have:** the server deliberately re-sends the last 10 minutes of changes every time, so a change that was still being saved on the server during your last sync is not missed. Upsert makes this harmless.
 
@@ -170,20 +170,20 @@ Do not hold all 21,000 students in memory; handle one page at a time.
 2. **`isArchived: true` means delete locally.** Archived students are not sent in a first sync, but they are sent in deltas, and this is the only way you find out.
 3. **Save `studentsSyncToken` last.** If the app is killed halfway, nothing is saved, and the next run simply starts again from the old token. Safe, as long as the token is never saved early.
 4. **Never build, edit or parse a `cursor` or `syncToken`.** Store and send them back exactly as received. The format can change without notice.
-5. **Never send `cursor` and `since` together** (the server answers 400).
-6. **A first sync replaces the local table.** Do not merge it into old data, or students archived long ago would stay on the phone.
+5. **Never send `cursor` and `since` together** (the server answers 400), and only ever pass a `syncToken` as `since` (never a `nextCursor`; the server answers 400).
+6. **A first sync replaces the local table.** Do not merge it into old data, or students archived long ago would stay on the phone. Run a first sync to the end within about 10 minutes (it normally takes seconds); a student archived on the server while a much longer first sync is still running can be missed until you next run a first sync.
 7. **If anything looks wrong, clear `studentsSyncToken` and run a first sync.** It is always safe.
 
 ## 7. When things go wrong
 
 | What happened | What to do |
 |---|---|
-| `400 Bad Request` | The token or `limit` was rejected. Clear `studentsSyncToken`, run a first sync. Log the message. |
+| `400 Bad Request` | The `limit`, `cursor` or `since` was rejected (malformed, empty, too long, or `since` is not a `syncToken`). Retry the same request **once** first: a database problem on the server can also come back as `400`. If it fails again, clear `studentsSyncToken` and run a first sync. Log the message. |
 | `401 Unauthorized` | Your login expired. Log in again, then **repeat the same request**. |
 | No network, timeout, or `5xx` mid-sync | Retry the **same request** (same URL) a few times with a pause. If it keeps failing, stop **without** saving the token; the next run continues safely from the old token. |
 | App closed or crashed mid-sync | Nothing to do. Nothing was saved, so the next run repeats the sync. |
 | You received a student you already have | Normal. Upsert handles it. |
-| `students` is empty and `nextCursor` is `null` | Nothing changed. Save the returned `syncToken` (if it is not `null`) and finish. |
+| `nextCursor` is `null` and you got only a few students you already have | Nothing new. Save the returned `syncToken` and finish. |
 
 ## 8. Photos
 

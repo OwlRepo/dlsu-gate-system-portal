@@ -125,6 +125,18 @@ describe('GET /sync/students changes feed — real PostgreSQL', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
+  it('error: rejects a since that carries a first-sync cursor', async () => {
+    const since = encodeFeedToken({
+      mode: 'i',
+      key: '2026-01-01 00:00:00',
+      id: 1,
+    });
+
+    await expect(service.getAllStudents({ since })).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
   it('edge: an empty roster returns no rows and no tokens', async () => {
     await expect(service.getAllStudents({ limit: 10 })).resolves.toEqual({
       students: [],
@@ -164,6 +176,61 @@ describe('GET /sync/students changes feed — real PostgreSQL', () => {
     const pages = await pullAll(1);
 
     expect(pages.flatMap(idsOf).sort()).toEqual(['1', '2', '3']);
+  });
+
+  it('edge: a NULL updatedAt sorts by createdAt, not by the epoch fallback', async () => {
+    await seed([
+      { id: '1', updatedAt: '2026-01-01 00:00:10' },
+      { id: '2', updatedAt: null },
+      { id: '3', updatedAt: '2026-01-01 00:00:20' },
+    ]);
+    await dataSource.query(
+      `UPDATE students SET "createdAt" = '2026-01-01 00:00:15' WHERE "ID_Number" = '2'`,
+    );
+
+    const pages = await pullAll(10);
+
+    expect(pages.flatMap(idsOf)).toEqual(['1', '2', '3']);
+  });
+
+  it('edge: a limit equal to the row count is one page, with no empty page after it', async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => ({
+      id: String(i + 1).padStart(2, '0'),
+      updatedAt: `2026-01-01 00:00:${String(i).padStart(2, '0')}`,
+    }));
+    await seed(rows);
+
+    const whole = await pullAll(20);
+    const halves = await pullAll(10);
+
+    expect(whole.map((p) => p.students.length)).toEqual([20]);
+    expect(whole[0].nextCursor).toBeNull();
+    expect(whole[0].syncToken).not.toBeNull();
+    expect(halves.map((p) => p.students.length)).toEqual([10, 10]);
+  });
+
+  it('edge: a student archived between pages leaves an empty last page that still hands back a usable token', async () => {
+    await seed([
+      { id: '1', updatedAt: '2026-01-01 00:00:01' },
+      { id: '2', updatedAt: '2026-01-01 00:00:02' },
+    ]);
+    const first = await service.getAllStudents({ limit: 1 });
+
+    await students.update({ ID_Number: '2' }, { isArchived: true });
+    const rest = await service.getAllStudents({
+      limit: 1,
+      cursor: first.nextCursor as string,
+    });
+    const delta = await service.getAllStudents({
+      limit: 10,
+      since: rest.syncToken as string,
+    });
+
+    expect(rest.students).toEqual([]);
+    expect(rest.nextCursor).toBeNull();
+    expect(
+      delta.students.map((s) => [s.ID_Number, s.isArchived]),
+    ).toContainEqual(['2', true]);
   });
 
   it('regression: students sharing one microsecond updatedAt are paged without looping or skipping', async () => {
@@ -212,6 +279,43 @@ describe('GET /sync/students changes feed — real PostgreSQL', () => {
     });
 
     expect(idsOf(delta)).toEqual(['2', '3']);
+  });
+
+  it('regression: the overlap edge is inclusive: exactly ten minutes back is re-sent, one microsecond earlier is not', async () => {
+    await seed([
+      { id: '1', updatedAt: '2026-01-01 12:00:00' },
+      { id: '2', updatedAt: '2026-01-01 11:59:59.999999' },
+      { id: '3', updatedAt: '2026-01-01 12:10:00' },
+    ]);
+    const since = encodeFeedToken({
+      mode: 'd',
+      key: '2026-01-01 12:10:00',
+      id: 3,
+    });
+
+    const delta = await service.getAllStudents({ limit: 10, since });
+
+    expect(idsOf(delta)).toEqual(['1', '3']);
+  });
+
+  it('regression: a delta spread over several pages, with tied timestamps, arrives complete and in order', async () => {
+    const tie = '2026-01-01 00:00:00.123456';
+    await seed([
+      { id: '1', updatedAt: tie },
+      { id: '2', updatedAt: tie },
+      { id: '3', updatedAt: tie },
+    ]);
+    const since = encodeFeedToken({
+      mode: 'd',
+      key: '2025-12-31 23:59:00',
+      id: 0,
+    });
+
+    const pages = await pullAll(1, since);
+
+    expect(pages).toHaveLength(3);
+    expect(pages.flatMap(idsOf)).toEqual(['1', '2', '3']);
+    expect(pages[2].syncToken).not.toBeNull();
   });
 
   it('regression: the delta of a quiet roster is only the last row and hands back a token', async () => {

@@ -108,6 +108,15 @@ describe('SyncService.getAllStudents — changes feed', () => {
     );
   });
 
+  it('error: rejects a since that carries a first-sync cursor, which is not a finished sync', async () => {
+    const since = encodeFeedToken({ mode: 'i', key: KEY, id: 7 });
+
+    await expect(service.getAllStudents({ since })).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(studentRepository.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
   it('error: wraps a database failure in a BadRequestException', async () => {
     builder.getRawAndEntities.mockRejectedValue(new Error('database is down'));
 
