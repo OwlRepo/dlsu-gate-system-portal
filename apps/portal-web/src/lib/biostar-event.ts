@@ -52,3 +52,34 @@ export function deviceDisplayName(
   }
   return `Device ${normalizedId}`;
 }
+
+export interface BiostarDevice {
+  id: string;
+  name: string;
+}
+
+// The /api/devices proxy forwards BioStar's body untouched, and BioStar does
+// not always answer a list request with a list (its "busy" reply carries no
+// DeviceCollection at all). Storing a non-array in React state crashed the
+// whole /user-management page at render time (`devices.map is not a
+// function`), so the shape is checked here, once, and a bad reply throws
+// inside the caller's existing catch instead of inside render.
+export function parseDeviceRows(payload: unknown): BiostarDevice[] {
+  const rows = (
+    payload as { data?: { DeviceCollection?: { rows?: unknown } } } | null
+  )?.data?.DeviceCollection?.rows;
+
+  if (!Array.isArray(rows)) {
+    throw new Error(
+      `Unexpected /api/devices reply: ${JSON.stringify(payload)?.slice(0, 200)}`,
+    );
+  }
+
+  return (rows as unknown[]).flatMap((row) => {
+    const { id, name } = (row ?? {}) as { id?: unknown; name?: unknown };
+    if (id === undefined || id === null || name === undefined || name === null) {
+      return [];
+    }
+    return [{ id: String(id), name: String(name) }];
+  });
+}

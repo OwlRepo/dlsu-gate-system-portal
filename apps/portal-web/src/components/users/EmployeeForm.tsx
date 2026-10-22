@@ -8,6 +8,7 @@ import Cookies from "js-cookie";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 import { CustomMultiSelect } from "../custom/CustomMultiSelect";
+import { parseDeviceRows } from "@/lib/biostar-event";
 
 export interface Device {
   id: string;
@@ -131,11 +132,17 @@ export default function EmployeeForm({ onClose }: formProps) {
           });
 
           if (response) {
-            setDevices(response.data.data.DeviceCollection.rows);
+            setDevices(parseDeviceRows(response.data));
             setLoading(false);
           }
         } catch (err) {
           console.error("Error fetching event data:", err);
+          toast({
+            title: "Error",
+            description: "Devices could not be loaded. Close and reopen the form to retry.",
+            variant: "destructive",
+            duration: 3000,
+          });
           setLoading(false);
         }
       };

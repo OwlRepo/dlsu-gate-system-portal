@@ -16,6 +16,7 @@ import Cookies from "js-cookie";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { CustomMultiSelect } from "../custom/CustomMultiSelect";
+import { parseDeviceRows } from "@/lib/biostar-event";
 
 interface EditDetailsDialogProps {
   isOpen: boolean;
@@ -203,11 +204,17 @@ const EditDetailsDialog: React.FC<EditDetailsDialogProps> = ({
           });
 
           if (response) {
-            setDevices(response.data.data.DeviceCollection.rows);
+            setDevices(parseDeviceRows(response.data));
             setLoading(false);
           }
         } catch (err) {
           console.error("Error fetching event data:", err);
+          toast({
+            title: "Error",
+            description: "Devices could not be loaded. Close and reopen the dialog to retry.",
+            variant: "destructive",
+            duration: 3000,
+          });
           setLoading(false);
         }
       };

@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { Device } from "../users/EmployeeForm";
 import { getAccessStatus } from "@/lib/access-status";
+import { parseDeviceRows } from "@/lib/biostar-event";
 import { getImageType } from "@/lib/image-type";
 
 export default function TurnstileGrid({
@@ -126,7 +127,7 @@ export default function TurnstileGrid({
           });
 
           if (response) {
-            setDevices(response.data.data.DeviceCollection.rows);
+            setDevices(parseDeviceRows(response.data));
           }
         } catch (error) {
           console.error("Error fetching event data:", error);
