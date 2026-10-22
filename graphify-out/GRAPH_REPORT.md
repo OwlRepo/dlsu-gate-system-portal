@@ -1,342 +1,358 @@
-# Graph Report - .  (2026-09-23)
+# Graph Report - admin-user-creation-error-d7638f  (2026-10-22)
 
 ## Corpus Check
-- 3 files · ~255,574 words
+- 503 files · ~304,772 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 3316 nodes · 6726 edges · 285 communities (141 shown, 144 thin omitted)
-- Extraction: 97% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 167 edges (avg confidence: 0.82)
-- Token cost: 109,205 input · 0 output
+- 3384 nodes · 6310 edges · 325 communities (157 shown, 168 thin omitted)
+- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 177 edges (avg confidence: 0.8)
+- Token cost: 0 input · 0 output
+
+## Graph Freshness
+- Built from commit: `f6673d9d`
+- Run `git rev-parse HEAD` and compare to check if the graph is stale.
+- Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- Turnstile Dashboard UI
-- Sidebar Navigation UI
-- Common Database Sync
-- Database Sync Modules
-- AI Engineering Governance
-- Backend Module Wiring
-- Database Sync Orchestration
-- Super Admin Controller
-- API Contracts and Domain Briefings
-- Workflow Port Plan
-- Employee Form Controls
-- Root Tooling Scripts
-- Screensaver Domain Backend
-- Student Management API
-- Employee Management Backend
-- BioStar Script Library
-- Persona Principles and Migration Rules
-- devDependencies Module
-- Turnstile Dashboard Tests
-- Frontend Mock Data
-- Safety Invariants and Personas
-- Reports Domain Backend
-- Screensaver Upload Controller
-- Shared Button Controls
-- TDD Gate
-- Task Runner Configuration
-- Frontend Auth Layout
-- CLAUDE.md Stack and Security
-- Dashboard WebSocket Tests
-- Example Backend Module
-- Task Lifecycle 2
-- Frontend Testing Dependencies
-- Refactor and Planning Rules
-- Database Check Script
-- Common Database Sync 2
-- DLSU-Lipa Scope Review
-- Sandbox Campaign Script
-- Persona Generator
-- Monorepo Package Tooling
-- Toast Notification UI
-- Database Check Script 2
-- Student Management API 2
-- Employee Entity Seeding
-- User Data Tables
-- Settings Account Forms
-- Database Check Script 3
-- JWT Authentication Guards
-- Dashboard WebSocket Tests 2
-- Root Tooling Scripts 2 2
-- JWT Authentication Guards 2
-- Employee Entity Seeding 2
-- Employee Entity Seeding 2
-- DASMA Sync Verification Report
-- ESLint Configuration Package
-- DLSU-Lipa Scope Review 2
-- TDD Red Marker and Report Parsers
-- Screensaver Domain Backend 2
-- Reports REST Controller
-- Legacy Windows Deployment Guide
-- Backend TypeScript Configuration
-- Task Lifecycle
-- University Brand Identity
-- Shadcn UI Configuration
-- Refactor and Planning Rules 2
-- react-internal Module
-- UI Package Tooling
-- Admin Management Backend
+- dashboard.tsx
+- sidebar.tsx
+- DatabaseSyncDasmaPathService
+- database-sync.service.ts
+- Canonical Files Inventory
+- Repository Map
+- DatabaseSyncService
+- SuperAdminService
+- Module Ownership Map
+- Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal
+- UserManagementPageContainer.tsx
+- scripts
+- login.service.ts
+- users.controller.ts
+- EmployeeController
+- run.ts
+- Project Manager prompt
+- devDependencies
+- LoginForm.tsx
+- handlers/index.ts
+- Planning Rules
+- ReportsGateway
+- .uploadScreensaver
+- CustomExport.tsx
+- tdd-lib.mjs
+- tasks
+- app/layout.tsx
+- CLAUDE.md (project facts)
+- auth/jwt-auth.guard.ts
+- ExampleService
+- Handoff and Integration
+- devDependencies
+- Task Router
+- accessibility-auditor.agent.mjs
+- Student
+- DLSU-Lipa Scope Review 2026-08-12
+- campaign.ts
+- generate-agent-defs.mjs
+- scripts
+- use-toast.ts
+- test-repo.mjs
+- StudentsController
+- app.module.ts
+- users/CustomTable.tsx
+- account-form.tsx
+- backup-db.mjs
+- ScreensaverService
+- dashboard.test.tsx
+- photo-soak.ts
+- health.controller.ts
+- Employee
+- cache-control.decorator.ts
+- DASMA sync verification report (2026-09-10)
+- devDependencies
+- ReportsService
+- Database Contracts
+- .validateToken
+- CreateReportDto
+- Windows Server Deployment Guide (PM2)
+- compilerOptions
+- Testing Strategy
+- Institutional Seal
+- components.json
+- Mandatory Pull Request Evidence (docs/ai/pr-evidence.md)
+- react-internal.js
+- devDependencies
+- admin.controller.ts
 - Agent Orchestration
-- Base TypeScript Configuration
-- Next.js TypeScript Configuration
-- Monorepo Package Tooling 2
-- middleware Module
-- Chart Visualization UI
-- Frontend TypeScript Configuration
-- Admin Management Backend 2
-- Users Bulk Operations
-- axios Module
-- Frontend Mock Data 2
-- Safety Invariants and Personas 2
-- cache-manager Module
-- Jest Test Configuration
-- Fake BioStar Server
-- Sync Cache Controllers
-- Task Lifecycle 2
-- Graphify Memory: Employee and Super Admin
-- Database Check Script 4
-- nest-cli Module
-- UI Package Scripts
-- Graphify Memory: Tooling and Sidebar
-- Backend Package Metadata
-- Common Database Sync 2
-- Admin Management Backend 2
-- UI Package Scripts 2
-- Abstract Pattern Asset
-- VERIFYI Brand Identity
-- Frontend TypeScript Configuration 2
-- Community 96
-- ELID Technology Intl Inc
-- mockServiceWorker Module
-- Monorepo Package Tooling 3
-- ESLint Configuration Package 2
-- UI Package Tooling 2
-- Admin Management Backend 3
-- exclude Module
-- UI TypeScript Configuration
-- BulkDeactivateDto Module
-- User Roles Backend
-- Admin Management Backend 3 2
-- Sync Module Backend
-- Frontend TypeScript Configuration 3
-- typescript-config package
-- Aug 11 EOD Report
+- compilerOptions
+- compilerOptions
+- devDependencies
+- chart.tsx
+- compilerOptions
+- cn
+- UserPaginationDto
+- axios
+- Dev Environment
+- AGENTS.md
+- cache-manager
+- jest
+- scripts/fake-biostar-server.ts
+- SyncController
+- npm run tdd:gate
+- Graphify memory: Should Employee Management Backend be split?
+- check-db.mjs
+- nest-cli.json
+- scripts
+- Graphify memory: Should Root Tooling Scripts be split?
+- backend/package.json
+- biostar-probe.ts
+- BasePaginationDto
+- portal-web/package.json
+- Abstract Contour Pattern Image
+- VERIFYI Logo Image
+- DatabaseSyncCommonService
+- DatabaseSyncController
+- ELID Technology Intl. Inc. Logo Image
+- mockServiceWorker.js
+- package.json
+- ReportsPageContainer.tsx
+- EmployeeService
+- UsersService
+- exclude
+- ui/tsconfig.json
+- database-sync.controller.ts
+- BulkDeactivateDto
+- Changes feed for `GET /sync/students`: paging plus "only what changed" for the mobile app
+- portal-web/eslint.config.mjs
+- ExampleController
+- typescript-config/package.json
+- Tuesday, Aug 11 EOD report
 - Verifyi Backend REST API
-- Admin Management Backend 3
-- Admin Management Backend 2 2
-- Student Management API 3
-- GenerateCsvDto Module
-- Users Bulk Operations 2
-- UI Package Tooling 3
-- Graphify Memory: Turnstile Dashboard
-- AI Engineering Governance 2
+- DatabaseSyncQueueService
+- env.ts
+- students.controller.ts
+- Mobile guide: the new student sync (`GET /sync/students`)
+- sync.service.ts
+- react-dom
+- Graphify memory: Should Turnstile Dashboard UI be split?
+- Autonomous Engineering Constitution
 - Backend Error Catalog
-- JWT Authentication Guards 3
-- UserPaginationDto Module
+- DASMA → BioStar: import in small steps, stop when BioStar is busy, and look cards up from one list
+- SyncStudentsQueryDto
 - Smiling Person Portrait
-- middleware Module 2
-- UI Package Tooling 2 2
-- JWT Authentication Guards 2
-- AddTimestampsToSuperAdmin1709082000000 Module
-- CreateTokenBlacklistTable1709126212000 Module
-- AddUpdatedAtToSyncQueue1709711000000 Module
-- CreateSyncAndStudentTables1710000000000 Module
-- CreateReportsTable1710100000000 Module
-- CreateInitialTables1710669185432 Module
-- FixColumnTypesV21711004478157 Module
-- RemoveColumnLengthsAndTypes1711441092123 Module
-- UpdateStudentColumnTypes1711442847913 Module
-- UpdateStudentNullableColumns1711442847914 Module
-- UpdateStudentLivedNameNullable1711531200000 Module
-- AddActivationColumnsToUsers1712345678901 Module
-- AddActivationColumnsToUsers1744008085000 Module
-- UpdateUniqueIdColumnType1744090868336 Module
-- RecreateSyncQueue1744090868337 Module
-- RunAllMigrations1744090868338 Module
-- UpdateSyncQueueTable1744090868339 Module
-- AddDeviceColumnToReport1745432754545 Module
-- AddGroupToStudents1750000000000 Module
-- CreateBiostarSyncState1750100000000 Module
-- AddGateColumnToReports1779553386679 Module
-- AddDatetimeIndexToReports1779553400000 Module
-- Migration: Student Activation Columns
-- Migration: Remarks Clear Pending
-- Migration: BioStar Row Hash
-- Migration: Last Full Sync
-- CreateAdminDto Module
-- Backend Windows Server 2022
+- axios-interceptor.test.ts
+- eslint
+- DASMA sync: skip what didn't change — SQL skip check, one-query read, card checks only for sent rows, one BioStar login, audit-log photo detection
+- AddTimestampsToSuperAdmin1709082000000
+- CreateTokenBlacklistTable1709126212000
+- AddUpdatedAtToSyncQueue1709711000000
+- CreateSyncAndStudentTables1710000000000
+- CreateReportsTable1710100000000
+- CreateInitialTables1710669185432
+- FixColumnTypesV21711004478157
+- RemoveColumnLengthsAndTypes1711441092123
+- UpdateStudentColumnTypes1711442847913
+- UpdateStudentNullableColumns1711442847914
+- UpdateStudentLivedNameNullable1711531200000
+- AddActivationColumnsToUsers1712345678901
+- AddActivationColumnsToUsers1744008085000
+- UpdateUniqueIdColumnType1744090868336
+- RecreateSyncQueue1744090868337
+- RunAllMigrations1744090868338
+- UpdateSyncQueueTable1744090868339
+- AddDeviceColumnToReport1745432754545
+- AddGroupToStudents1750000000000
+- CreateBiostarSyncState1750100000000
+- AddGateColumnToReports1779553386679
+- AddDatetimeIndexToReports1779553400000
+- AddActivationColumnsToStudents1780000000000
+- AddRemarksClearPendingToStudents1780000001000
+- AddBiostarRowHashAndRemarksCheckedAt1780000002000
+- AddLastFullSyncAtToBiostarSyncState1780000003000
+- CreateAdminDto
+- Portal Windows Server Deployment Guide
 - File Document Icon
-- Vercel Module
+- Vercel
 - Window Interface Icon
-- user-management page
-- Monorepo Package Tooling 3 2
-- Engineering Workflow Templates
-- Backend Module Wiring 2
-- BulkDeactivateDto Module 2
-- User Roles Backend 2
-- User DTO Services 2
+- user-management/page.tsx
+- DASMA sync: bring back the synced-records file, complete for the whole day
+- Bootstrap Validation Workflow
+- UI/UX Designer prompt
+- Dashboard
+- useReportSocket.tsx
+- Plan — count "user not found in BioStar" as a finished remark clear
 - Default User Avatar
 - Globe Icon
-- Next Module
-- AI Engineering Governance 3
+- Next.js
+- Fresh Diff-Only Review
 - Architecture Decision Record Log
-- axios Module 2
-- bcryptjs Module
-- Backend Runtime Dependencies
-- class-transformer Module
-- class-validator Module
-- cli-table3 Module
-- compression Module
-- Backend Runtime Dependencies 2
-- csv-parse Module
-- csv-writer Module
-- Backend Runtime Dependencies 3
-- cache-manager Module 2
-- drizzle-orm Module
-- express-rate-limit Module
-- Backend Runtime Dependencies 4
-- fast-csv Module
-- form-data Module
-- formdata-node Module
-- mssql Module
-- @nestjs cache-manager
-- @nestjs class-validator
-- @nestjs common
-- @nestjs config
-- @nestjs core
-- @nestjs jwt
-- @nestjs mapped-types
-- Backend Runtime Dependencies 5
-- @nestjs platform-express
-- @nestjs platform-socket io
-- @nestjs schedule
-- @nestjs swagger
-- @nestjs typeorm
-- @nestjs websockets
-- passport Module
-- Backend Runtime Dependencies 6
-- pg-query-stream Module
-- redis Module
-- reflect-metadata Module
-- sharp Module
-- socket io
-- typeorm Module
-- @types bcryptjs
-- @types form-data
-- @types ioredis
-- uuid Module
-- Employee Entity Seeding 3
-- Student Management API 2 2
-- Employee Entity Seeding 4
-- Employee Entity Seeding 5
+- axios
+- bcryptjs
+- dependencies
+- class-transformer
+- class-validator
+- cli-table3
+- compression
+- clsx
+- csv-parse
+- csv-writer
+- sheet.tsx
+- dayjs
+- drizzle-orm
+- express-rate-limit
+- BioStar "busy" reply crashes the BioStar → Postgres sync (photo never arrives)
+- fast-csv
+- form-data
+- formdata-node
+- mssql
+- @nestjs/cache-manager
+- @nestjs/class-validator
+- @nestjs/common
+- @nestjs/config
+- @nestjs/core
+- @nestjs/jwt
+- @nestjs/mapped-types
+- run-with-root-env.mjs
+- @nestjs/platform-express
+- @nestjs/platform-socket.io
+- @nestjs/schedule
+- @nestjs/swagger
+- @nestjs/typeorm
+- @nestjs/websockets
+- passport
+- seed-qa-test-account.ts
+- pg-query-stream
+- redis
+- reflect-metadata
+- sharp
+- socket.io
+- typeorm
+- @types/bcryptjs
+- @types/form-data
+- @types/ioredis
+- uuid
+- verify-env.mjs
+- react-library.json
 - DLSU Portal Docker Service
-- class-variance-authority Module
-- dependencies Module
-- js-cookie Module
-- jwt-decode Module
-- lodash Module
-- lucide-react Module
-- msw Module
-- next Module
-- @radix-ui react-checkbox
-- @radix-ui react-dialog
-- dependencies Module 2
-- dependencies Module 3
-- @radix-ui react-scroll-area
-- @radix-ui react-select
-- @radix-ui react-separator
-- @radix-ui react-slot
-- react Module
-- react-dropzone Module
-- recharts Module
-- dependencies Module 4
-- tailwind-merge Module
-- dependencies Module 5
-- zod Module
-- zustand Module
-- postcss config
-- tailwind config
+- class-variance-authority
+- dependencies
+- jwt-decode
+- lodash
+- lucide-react
+- msw
+- next
+- @radix-ui/react-checkbox
+- @radix-ui/react-dialog
+- AddSyncCursorsToBiostarSyncState1780000004000
+- @radix-ui/react-label
+- @radix-ui/react-scroll-area
+- @radix-ui/react-select
+- @radix-ui/react-separator
+- @radix-ui/react-slot
+- react
+- react-dropzone
+- recharts
+- code-reviewer.agent.mjs
+- tailwind-merge
+- database-architect.agent.mjs
+- zod
+- zustand
+- postcss.config.mjs
 - Architect Role
-- AI Engineering Governance 4
+- Implementer Role
 - Product Manager Role
 - Reporter Role
-- launch json Configuration File
-- settings json Configuration File
-- extensions json Configuration File
-- settings json Configuration File 2
-- tasks json Configuration File
+- launch.json Configuration File
+- settings.json Configuration File
+- extensions.json Configuration File
+- settings.json Configuration File
+- tasks.json Configuration File
 - Lessons Learned
-- Testing Strategy
+- Execution Report Template
 - PR Report
 - QA Report
 - Review Report
-- Task Module
+- Task
 - Validation Auto-Fix Prompt
-- Engineering Workflow Templates 2
+- Blocker Handling
 - Review Process
 - DLSU Gate System Backend
-- Reports REST Controller 3
-- Reports REST Controller 4
-- reports controller 2
-- reports controller 3
-- reports controller 4
-- reports controller 5
-- Reports REST Controller 5
-- Student Management API 4
-- jest-e2e json Configuration File
-- Next js Portal Application
+- nestjs-backend-dev.agent.mjs
+- nextjs-frontend-dev.agent.mjs
+- EnhancedReportQueryDto
+- project-manager.agent.mjs
+- security-auditor.agent.mjs
+- test-engineer.agent.mjs
+- ui-ux-designer.agent.mjs
+- src/button.tsx
+- jest-e2e.json Configuration File
+- Next.js Portal Application
 - Frontend Mock Mode
 - Domain Documentation Guidance
 - Linear Issue Tracker Guidance
 - Triage Labels
 - Turbo ESLint Configuration
+- dotenv
+- ioredis
+- jimp
+- @nestjs/terminus
+- pg
+- rxjs
+- drizzle-kit
+- eslint-config-prettier
+- eslint-plugin-prettier
+- globals
+- @nestjs/cli
+- @nestjs/schematics
+- @nestjs/testing
+- pm2
+- prettier
+- source-map-support
+- supertest
+- ts-jest
+- ts-loader
+- ts-node
+- tsconfig-paths
+- @types/bcrypt
+- @types/compression
+- @types/express
+- @types/node
+- @types/pg
+- @types/supertest
+- typescript
+- @typescript-eslint/parser
+- @hookform/resolvers
+- @radix-ui/react-tabs
+- @radix-ui/react-toast
+- @radix-ui/react-tooltip
+- react-hook-form
+- @types/socket.io-client
 
 ## God Nodes (most connected - your core abstractions)
-1. `Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal` - 114 edges
-2. `External Package: react` - 80 edges
-3. `Module Ownership Map` - 73 edges
-4. `Repository Map` - 68 edges
-5. `External Package: @nestjs/common` - 65 edges
-6. `External Package: typeorm` - 64 edges
-7. `Testing Strategy` - 62 edges
-8. `Architecture Manifest` - 56 edges
-9. `API Contracts` - 55 edges
-10. `scripts` - 53 edges
+1. `Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal` - 113 edges
+2. `Module Ownership Map` - 73 edges
+3. `Repository Map` - 67 edges
+4. `Testing Strategy` - 62 edges
+5. `Architecture Manifest` - 56 edges
+6. `Student` - 55 edges
+7. `API Contracts` - 55 edges
+8. `scripts` - 53 edges
+9. `Database Contracts` - 47 edges
+10. `Risk Register` - 44 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Graphify memory: Should Root Tooling Scripts be split?` --references--> `scripts`  [EXTRACTED]
   graphify-out/memory/query_20260811_141128_should_root_tooling_scripts_be_split.md → apps/backend/tsconfig.build.json
 - `Non-bypassable evidence gate` --semantically_similar_to--> `Core principles (1-10 + 6b)`  [INFERRED] [semantically similar]
   PLANNING_STANDARDS.md → AGENTS.md
-- `Dev Environment` --references--> `turbo`  [EXTRACTED]
-  docs/ai/dev-environment.md → package.json
-- `Repository Map` --references--> `turbo`  [EXTRACTED]
-  docs/ai/file-index/repository-map.md → package.json
-- `Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal` --references--> `turbo`  [EXTRACTED]
-  docs/plans/chore-claude-workflow-port.md → package.json
+- `Additive backward-compatible migrations` --semantically_similar_to--> `Database rules`  [INFERRED] [semantically similar]
+  agents/src/prompts/database-architect.md → CLAUDE.md
+- `Tech stack (verified)` --semantically_similar_to--> `portal-web stack (Next.js 15, React 19, shadcn, zustand, MSW)`  [INFERRED] [semantically similar]
+  CLAUDE.md → agents/src/prompts/nextjs-frontend-dev.md
+- `Public repo: no hostnames/credentials/PII` --semantically_similar_to--> `The repo is public`  [INFERRED] [semantically similar]
+  agents/src/prompts/security-auditor.md → CLAUDE.md
 
 ## Import Cycles
-- 1-file cycle: `apps/backend/scripts/seed-qa-test-account.ts -> apps/backend/scripts/seed-qa-test-account.ts`
-- 1-file cycle: `apps/backend/src/config/data-source.ts -> apps/backend/src/config/data-source.ts`
-- 1-file cycle: `apps/backend/src/admin/admin.controller.spec.ts -> apps/backend/src/admin/admin.controller.spec.ts`
-- 1-file cycle: `apps/backend/src/admin/admin.controller.ts -> apps/backend/src/admin/admin.controller.ts`
-- 1-file cycle: `apps/backend/src/admin/admin.service.ts -> apps/backend/src/admin/admin.service.ts`
-- 1-file cycle: `apps/backend/src/common/dto/base-pagination.dto.ts -> apps/backend/src/common/dto/base-pagination.dto.ts`
-- 1-file cycle: `apps/backend/src/admin/admin.module.ts -> apps/backend/src/admin/admin.module.ts`
-- 1-file cycle: `apps/backend/src/app.module.ts -> apps/backend/src/app.module.ts`
-- 1-file cycle: `apps/backend/src/admin/dto/create-admin.dto.ts -> apps/backend/src/admin/dto/create-admin.dto.ts`
-- 1-file cycle: `apps/backend/src/auth/auth.module.ts -> apps/backend/src/auth/auth.module.ts`
-- 1-file cycle: `apps/backend/src/config/redis.config.ts -> apps/backend/src/config/redis.config.ts`
-- 1-file cycle: `apps/backend/src/database-sync/database-sync.module.ts -> apps/backend/src/database-sync/database-sync.module.ts`
-- 1-file cycle: `apps/backend/src/interceptors/cache.interceptor.ts -> apps/backend/src/interceptors/cache.interceptor.ts`
-- 1-file cycle: `apps/backend/src/main.ts -> apps/backend/src/main.ts`
-- 1-file cycle: `apps/backend/src/auth/token-blacklist.service.ts -> apps/backend/src/auth/token-blacklist.service.ts`
-- 1-file cycle: `apps/backend/src/database-sync/database-sync.controller.ts -> apps/backend/src/database-sync/database-sync.controller.ts`
-- 1-file cycle: `apps/backend/src/auth/jwt.strategy.ts -> apps/backend/src/auth/jwt.strategy.ts`
-- 1-file cycle: `apps/backend/src/health/health.controller.ts -> apps/backend/src/health/health.controller.ts`
-- 1-file cycle: `apps/backend/src/config/dayjs.config.ts -> apps/backend/src/config/dayjs.config.ts`
-- 1-file cycle: `apps/backend/src/reports/reports.gateway.ts -> apps/backend/src/reports/reports.gateway.ts`
+- None detected.
 
 ## Hyperedges (group relationships)
 - **Plan-approve-execute-handoff path** — agents_node_l_write_plan, agents_node_r_user_approval, agents_node_s_worktree_execution, agents_node_w_handoff [EXTRACTED 1.00]
@@ -364,449 +380,437 @@
 - **Abstract Topographic Pattern System** — apps_portal_web_public_image_pattern_contour_line_pattern, apps_portal_web_public_image_pattern_organic_flowing_curves, apps_portal_web_public_image_pattern_nested_contour_bands, apps_portal_web_public_image_pattern_irregular_enclosed_shapes [EXTRACTED 1.00]
 - **VERIFYI Horizontal Identity System** — apps_portal_web_public_verifyi_verifyi_wordmark, apps_portal_web_public_verifyi_stylized_v_mark, apps_portal_web_public_verifyi_teal_brand_palette, apps_portal_web_public_verifyi_rounded_rectangle_banner [EXTRACTED 1.00]
 
-## Communities (285 total, 144 thin omitted)
+## Communities (325 total, 168 thin omitted)
 
-### Community 0 - "Turnstile Dashboard UI"
-Cohesion: 0.05
-Nodes (54): formatLiveDateTime(), LiveData, LiveDataRow, LiveDataTable(), baseRow, StatisticsCard(), StatisticsCardProps, EntriesLog() (+46 more)
-
-### Community 1 - "Sidebar Navigation UI"
-Cohesion: 0.04
-Nodes (60): menuItems, Checkbox, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioItem, DropdownMenuSeparator (+52 more)
-
-### Community 2 - "Common Database Sync"
-Cohesion: 0.07
-Nodes (8): DatabaseSyncDasmaPathService, Injectable, InjectRepository, DatabaseSyncMainPathService, Injectable, InjectRepository, DatabaseSyncCommonService, Injectable
-
-### Community 3 - "Database Sync Modules"
-Cohesion: 0.10
-Nodes (31): BASELINE, Row, USERS, RFC-4180, BiostarSyncState, Column, CreateDateColumn, Entity (+23 more)
-
-### Community 4 - "AI Engineering Governance"
-Cohesion: 0.05
-Nodes (50): FE+BE gstack /qa verification, Five-Bucket QA Gate, Simple English + analogy per term, Plan-then-approve rule, Plan TL;DR first, Hard gate: no code before plan + observed RED, Non-behavioral TDD exemptions, Strict TDD (RED/GREEN/REFACTOR) (+42 more)
-
-### Community 5 - "Backend Module Wiring"
+### Community 0 - "dashboard.tsx"
 Cohesion: 0.06
-Nodes (42): TokenBlacklist, Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, JwtStrategy, Injectable, AppDataSource (+34 more)
+Nodes (54): CustomTable(), PaginatedTableProps, columns, Row, formatLiveDateTime(), LiveData, LiveDataRow, LiveDataTable() (+46 more)
 
-### Community 6 - "Database Sync Orchestration"
+### Community 1 - "sidebar.tsx"
 Cohesion: 0.08
-Nodes (24): Roles(), DatabaseSyncController, ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags, Body (+16 more)
+Nodes (28): menuItems, Separator, Sidebar, SidebarContent, SidebarContext, SidebarFooter, SidebarGroup, SidebarGroupAction (+20 more)
 
-### Community 7 - "Super Admin Controller"
-Cohesion: 0.05
-Nodes (39): CreateAdminDto, ApiProperty, ApiPropertyOptional, IsBoolean, IsNotEmpty, IsOptional, IsString, CreateSuperAdminDto (+31 more)
+### Community 2 - "DatabaseSyncDasmaPathService"
+Cohesion: 0.08
+Nodes (5): configService, DatabaseSyncDasmaPathService, Injectable, CardDirectory, isBiostarErrorReply()
 
-### Community 8 - "API Contracts and Domain Briefings"
-Cohesion: 0.07
-Nodes (54): Domain Briefings, HttpCacheInterceptor (Redis GET cache), RolesGuard + @Roles inconsistently applied, Sync scheduling (cron + SchedulerRegistry, Asia/Manila), API Contracts, AdminController has no role guard, BioStar device proxy route handlers (/api/login etc.), API Contract Index (+46 more)
-
-### Community 9 - "Workflow Port Plan"
-Cohesion: 0.06
-Nodes (51): Four gate-access invariants, Fresh worktree per task, never commit to main, Node R: User approves execution, Node S: execution.md, fetch origin/main, new branch + worktree, Senior Staff Full Stack AI Engineer persona (NestJS/TypeORM/PostgreSQL/Redis + Next.js 15, WS2022 NSSM, Bun+Turborepo), Structured work orders / autonomous layer (PILOT_FROZEN), Worktree and branch isolation, Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal (+43 more)
-
-### Community 10 - "Employee Form Controls"
+### Community 3 - "database-sync.service.ts"
 Cohesion: 0.10
-Nodes (39): CustomExport(), CustomExportProps, ExportSettings, FilterItem, CustomMultiSelect(), GateAnalyticsRow, MOCK_GATE_ANALYTICS, ReportsPageContainer() (+31 more)
+Nodes (30): BASELINE, Row, DatabaseSyncModule, Module, BiostarSyncState, Column, CreateDateColumn, Entity (+22 more)
 
-### Community 11 - "Root Tooling Scripts"
-Cohesion: 0.04
-Nodes (52): scripts, build, check:deps, check:outdated, check:security, check:security:fix, check-types, check:windows (+44 more)
+### Community 4 - "Canonical Files Inventory"
+Cohesion: 0.08
+Nodes (34): FE+BE gstack /qa verification, Five-Bucket QA Gate, Simple English + analogy per term, Plan-then-approve rule, Plan TL;DR first, Hard gate: no code before plan + observed RED, Non-behavioral TDD exemptions, Strict TDD (RED/GREEN/REFACTOR) (+26 more)
 
-### Community 12 - "Screensaver Domain Backend"
-Cohesion: 0.11
-Nodes (26): Admin, Column, Entity, PrimaryGeneratedColumn, defaultAdmin, defaultSuperAdmin, LoginController, ApiTags (+18 more)
-
-### Community 13 - "Student Management API"
-Cohesion: 0.10
-Nodes (18): ROLES_KEY, Role, RolesGuard, Injectable, UpdateReportDto, EnhancedReportQueryDto, GateAnalyticsQueryDto, GenerateCSVDto (+10 more)
-
-### Community 14 - "Employee Management Backend"
-Cohesion: 0.06
-Nodes (32): CreateEmployeeDto, ApiProperty, IsArray, IsBoolean, IsEmail, IsOptional, IsString, ApiPropertyOptional (+24 more)
-
-### Community 15 - "BioStar Script Library"
-Cohesion: 0.11
-Nodes (44): banner(), BiostarSession, CsvRow, DASMA_CSV_HEADERS, deleteBiostarUsers(), getBiostarUser(), httpsAgent, importCsv() (+36 more)
-
-### Community 16 - "Persona Principles and Migration Rules"
-Cohesion: 0.06
-Nodes (48): Accessibility Auditor prompt, WCAG_AA_PASS / WCAG_AA_FAIL verdict, WCAG 2.1 AA checklist, Code review checklist, READY / NEEDS_CHANGES verdict, Database Architect prompt, Additive backward-compatible migrations, Auto-migrate on deploy chain (+40 more)
-
-### Community 17 - "devDependencies Module"
-Cohesion: 0.04
-Nodes (47): devDependencies, drizzle-kit, eslint-plugin-prettier, jest, @nestjs/cli, @nestjs/schematics, @nestjs/testing, pm2 (+39 more)
-
-### Community 18 - "Turnstile Dashboard Tests"
-Cohesion: 0.05
-Nodes (22): CustomDropdownButton(), CustomDropdownProps, DropdownOption, CustomMultiSelectProps, Option, CustomTable(), columns, Row (+14 more)
-
-### Community 19 - "Frontend Mock Data"
+### Community 5 - "Repository Map"
 Cohesion: 0.09
-Nodes (27): MockModeProvider(), GateStats, useReportsSocket(), isMockMode(), worker, mockAuthValidate, mockProfile, mockDashboardScans (+19 more)
+Nodes (23): JwtStrategy, Injectable, AppDataSource, developmentConfig, productionConfig, AppDataSource, Login, getUser() (+15 more)
 
-### Community 20 - "Safety Invariants and Personas"
+### Community 6 - "DatabaseSyncService"
 Cohesion: 0.12
-Nodes (41): BioStar deprovision failure rolls back Postgres, Mandatory safety rules (no secrets, no bypass approvals, no destructive auto), Generated agent: project-manager, Global Policy (appended to every persona), Generated agent: database-architect, Generated agent: nextjs-frontend-dev, Generated agent: ui-ux-designer, Generated agent: code-reviewer (+33 more)
+Nodes (5): DatabaseSyncService, Injectable, InjectRepository, ScheduledSyncDto, ApiProperty
 
-### Community 21 - "Reports Domain Backend"
-Cohesion: 0.06
-Nodes (18): CreateReportDto, ApiProperty, IsDateString, IsNotEmpty, IsOptional, IsString, Report, Column (+10 more)
+### Community 7 - "SuperAdminService"
+Cohesion: 0.09
+Nodes (23): ApiPropertyOptional, IsDateString, IsEmail, IsOptional, IsString, MinLength, UpdateSuperAdminDto, SuperAdminController (+15 more)
 
-### Community 22 - "Screensaver Upload Controller"
-Cohesion: 0.06
-Nodes (25): ApiConsumes, ApiHeader, configService, DatabaseSyncQueueService, Injectable, InjectRepository, SyncQueue, Column (+17 more)
-
-### Community 23 - "Shared Button Controls"
-Cohesion: 0.12
-Nodes (31): CustomFilter(), CustomFilterProps, FilterType, PaginatedTableProps, ReportsHeader, ReportsTable(), ReportsTableProps, baseRow (+23 more)
-
-### Community 24 - "TDD Gate"
+### Community 8 - "Module Ownership Map"
 Cohesion: 0.11
-Nodes (35): Guarded Logic/UI/Test/Migration Path Classification, changedEntries(), collectTitles(), GateError, git(), main(), NODE_MODULES_DIRS, prBody() (+27 more)
+Nodes (32): config, DecodedToken, Domain Briefings, API Contracts, AdminController has no role guard, BioStar device proxy route handlers (/api/login etc.), API Contract Index, DatabaseSync /sync and /biostar/sync lack role guard (+24 more)
 
-### Community 25 - "Task Runner Configuration"
+### Community 9 - "Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal"
+Cohesion: 0.05
+Nodes (56): Automatic agent routing default (project-manager persona first), Four gate-access invariants, Node R: User approves execution, npm run agents:generate (command), database-architect persona, nestjs-backend-dev persona, nextjs-frontend-dev persona, project-manager persona (+48 more)
+
+### Community 10 - "UserManagementPageContainer.tsx"
+Cohesion: 0.08
+Nodes (38): CustomDropdownButton(), CustomDropdownProps, DropdownOption, CustomFilter(), CustomFilterProps, FilterItem, FilterType, CustomMultiSelect() (+30 more)
+
+### Community 11 - "scripts"
+Cohesion: 0.04
+Nodes (53): scripts, build, check:deps, check:outdated, check:security, check:security:fix, check-types, check:windows (+45 more)
+
+### Community 12 - "login.service.ts"
+Cohesion: 0.08
+Nodes (33): Admin, Column, Entity, PrimaryGeneratedColumn, defaultAdmin, defaultSuperAdmin, LoginController, ApiTags (+25 more)
+
+### Community 13 - "users.controller.ts"
+Cohesion: 0.19
+Nodes (14): ROLES_KEY, Role, BulkDeactivateResponseDto, DeactivationStatus, ApiProperty, BulkReactivateDto, ApiProperty, IsArray (+6 more)
+
+### Community 14 - "EmployeeController"
+Cohesion: 0.09
+Nodes (22): ApiPropertyOptional, IsArray, IsBoolean, IsOptional, IsString, MinLength, UpdateEmployeeDto, EmployeeController (+14 more)
+
+### Community 15 - "run.ts"
+Cohesion: 0.10
+Nodes (45): banner(), BiostarSession, CsvRow, DASMA_CSV_HEADERS, deleteBiostarUsers(), getBiostarUser(), httpsAgent, importCsv() (+37 more)
+
+### Community 16 - "Project Manager prompt"
+Cohesion: 0.08
+Nodes (38): Code review checklist, Database Architect prompt, Additive backward-compatible migrations, Auto-migrate on deploy chain, Migration test or Migration-Waiver, Index hot reports columns, Runs alone before contract lock, NestJS Backend Dev prompt (+30 more)
+
+### Community 17 - "devDependencies"
+Cohesion: 0.22
+Nodes (9): devDependencies, jest, @types/jest, @types/multer, @typescript-eslint/eslint-plugin, jest, @types/jest, @types/multer (+1 more)
+
+### Community 18 - "LoginForm.tsx"
+Cohesion: 0.18
+Nodes (6): LoginFormProps, LoginPage(), Logo(), TabsContent, TabsList, TabsTrigger
+
+### Community 19 - "handlers/index.ts"
+Cohesion: 0.13
+Nodes (17): worker, mockAuthValidate, mockProfile, mockDashboardScans, mockGateAnalytics, mockReports, mockScreensaver, mockSchedules (+9 more)
+
+### Community 20 - "Planning Rules"
+Cohesion: 0.21
+Nodes (25): BioStar deprovision failure rolls back Postgres, Mandatory safety rules (no secrets, no bypass approvals, no destructive auto), Generated agent: project-manager, Global Policy (appended to every persona), Generated agent: database-architect, Generated agent: nextjs-frontend-dev, Generated agent: ui-ux-designer, Generated agent: code-reviewer (+17 more)
+
+### Community 21 - "ReportsGateway"
+Cohesion: 0.20
+Nodes (4): ReportsGateway, Interval, WebSocketGateway, WebSocketServer
+
+### Community 22 - ".uploadScreensaver"
+Cohesion: 0.12
+Nodes (14): ApiConsumes, ApiHeader, ScreensaverController, ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags (+6 more)
+
+### Community 23 - "CustomExport.tsx"
+Cohesion: 0.15
+Nodes (21): CustomExportProps, ExportSettings, IdleScreensaver(), ScreenSaverUpload(), TimePicker(), TimePickerProps, Card, CardContent (+13 more)
+
+### Community 24 - "tdd-lib.mjs"
+Cohesion: 0.08
+Nodes (51): Guarded Logic/UI/Test/Migration Path Classification, changedEntries(), collectTitles(), GateError, git(), main(), NODE_MODULES_DIRS, prBody() (+43 more)
+
+### Community 25 - "tasks"
 Cohesion: 0.05
 Nodes (36): nextConfig, ^build, ^check-types, .env*, ^lint, .next/**, !.next/cache/**, ^start (+28 more)
 
-### Community 26 - "Frontend Auth Layout"
-Cohesion: 0.08
-Nodes (24): Unresolved Reference: Globals, inter, metadata, AppBar(), AppSidebar(), IdleScreensaver(), OperationSettings(), items (+16 more)
+### Community 26 - "app/layout.tsx"
+Cohesion: 0.15
+Nodes (13): inter, metadata, AppBar(), AppSidebar(), SidebarProvider, mockedAxios, mockedCookies, ValidateToken() (+5 more)
 
-### Community 27 - "CLAUDE.md Stack and Security"
+### Community 27 - "CLAUDE.md (project facts)"
 Cohesion: 0.07
 Nodes (32): Local Gates (tdd:gate, agents:lint, test:scripts), TDD enforcement (PreToolUse hook + tdd:red / tdd:gate), No completion claim without observed evidence, Generated Claude Code personas, Primary loop (PM -> Architect -> Coordinator -> Implementer -> Reviewer -> QA -> PR -> Approval -> Report), Codex-leftover Guard, Extension Rule, Project Knowledge lives in docs/ai (+24 more)
 
-### Community 28 - "Dashboard WebSocket Tests"
+### Community 28 - "auth/jwt-auth.guard.ts"
 Cohesion: 0.10
-Nodes (28): AccessProps, GateAccessStat(), GateAccessStatProps, GateAccessStats(), getStatusStyles(), AccessStatusCode, AccessStatusInput, AccessStatusResult (+20 more)
+Nodes (18): TokenBlacklist, Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, JwtAuthGuard, Injectable, JwtStrategy (+10 more)
 
-### Community 29 - "Example Backend Module"
-Cohesion: 0.08
-Nodes (17): redisConfig, Body, ExampleController, Controller, Get, Param, ExampleModule, Module (+9 more)
+### Community 29 - "ExampleService"
+Cohesion: 0.15
+Nodes (10): redisConfig, ExampleController, Controller, Get, Param, ExampleModule, Module, ExampleService (+2 more)
 
-### Community 30 - "Task Lifecycle 2"
+### Community 30 - "Handoff and Integration"
 Cohesion: 0.09
 Nodes (28): Coordinator Role, automation: manual, autonomy_level: 2, PILOT_FROZEN activation state, Level 2 gated by approval, database-sync cron (09:00/21:00 Asia/Manila), Scheduler not activated, Autonomous Cycle (Planning / Engineering / Reporting) (+20 more)
 
-### Community 31 - "Frontend Testing Dependencies"
-Cohesion: 0.06
-Nodes (31): devDependencies, eslint-config-next, @eslint/eslintrc, jsdom, postcss, tailwindcss, @testing-library/jest-dom, @testing-library/react (+23 more)
+### Community 31 - "devDependencies"
+Cohesion: 0.05
+Nodes (41): devDependencies, eslint, eslint-config-next, @eslint/eslintrc, jsdom, postcss, tailwindcss, @testing-library/jest-dom (+33 more)
 
-### Community 32 - "Refactor and Planning Rules"
-Cohesion: 0.09
-Nodes (30): Task Intake, Task Classification Moved to task-router.md, Task Intake Requirements (objective, acceptance criteria, priority, risks, unknowns, dependencies), Linear Issue Planning-Triage Pass, Task Classification: Block, Tiny/Express/Standard/Deep Size Vocabulary, Backend AGENTS.md, Prioritize generated AI docs before scanning repo (+22 more)
-
-### Community 33 - "Database Check Script"
-Cohesion: 0.10
-Nodes (21): dir, persona, dir, persona, dir, persona, dir, persona (+13 more)
-
-### Community 34 - "Common Database Sync 2"
-Cohesion: 0.11
-Nodes (11): IndexedStudentRepository, FakeStudentRepository, Student, Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn (+3 more)
-
-### Community 35 - "DLSU-Lipa Scope Review"
+### Community 32 - "Task Router"
 Cohesion: 0.08
-Nodes (30): DLSU-Lipa Scope Review 2026-08-12, K10: campus/sector dashboard need, K11: data retention policy under RA 10173, K1: BioStar-level door/zone control over API?, K3: Lipa source views (DOB, opt-out flag, HRIS split), K4: MIFARE card type before procurement, K5: attendance definitions (class times, absence threshold), K6: notification channels — which report/event (SMTP, Telegram, Viber, SMS) (+22 more)
+Nodes (33): Task Intake, Task Classification Moved to task-router.md, Task Intake Requirements (objective, acceptance criteria, priority, risks, unknowns, dependencies), Linear Issue Planning-Triage Pass, Task Classification: Block, Tiny/Express/Standard/Deep Size Vocabulary, AI_WORKFLOW.md (pointer), Phase-loaded workflow (+25 more)
 
-### Community 36 - "Sandbox Campaign Script"
+### Community 34 - "Student"
 Cohesion: 0.15
-Nodes (27): baseline(), campaignRows(), check7(), check8(), clearPg(), COMMANDS, httpsAgent, insertRows() (+19 more)
+Nodes (8): IndexedStudentRepository, FakeStudentRepository, Student, Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn
 
-### Community 37 - "Persona Generator"
+### Community 35 - "DLSU-Lipa Scope Review 2026-08-12"
+Cohesion: 0.10
+Nodes (25): DLSU-Lipa Scope Review 2026-08-12, K10: campus/sector dashboard need, K11: data retention policy under RA 10173, K1: BioStar-level door/zone control over API?, K2: campus level vs per-room scope, K3: Lipa source views (DOB, opt-out flag, HRIS split), K4: MIFARE card type before procurement, K5: attendance definitions (class times, absence threshold) (+17 more)
+
+### Community 36 - "campaign.ts"
+Cohesion: 0.09
+Nodes (45): baseline(), campaignRows(), check7(), check8(), clearPg(), COMMANDS, httpsAgent, insertRows() (+37 more)
+
+### Community 37 - "generate-agent-defs.mjs"
 Cohesion: 0.11
 Nodes (23): P3 Personas, check(), CLAUDE_DIR, claudeFilePath(), computeTargets(), escapeDoubleQuoted(), findDuplicateOwnedGlobs(), generate() (+15 more)
 
-### Community 38 - "Monorepo Package Tooling"
+### Community 38 - "scripts"
 Cohesion: 0.07
 Nodes (28): scripts, agents:generate, agents:lint, backup:db, build, build:backend, build:web, check:db (+20 more)
 
-### Community 39 - "Toast Notification UI"
-Cohesion: 0.11
-Nodes (24): Toast, ToastAction, ToastActionElement, ToastClose, ToastDescription, ToastProps, Unresolved Reference: Toastprovider, ToastTitle (+16 more)
+### Community 39 - "use-toast.ts"
+Cohesion: 0.12
+Nodes (23): Toast, ToastAction, ToastActionElement, ToastClose, ToastDescription, ToastProps, ToastTitle, toastVariants (+15 more)
 
-### Community 40 - "Database Check Script 2"
+### Community 40 - "test-repo.mjs"
 Cohesion: 0.16
-Nodes (17): External Package: node-child-process, markerPath(), BE_SPEC, BE_SRC, CASES, FE_SRC, FE_TEST, git() (+9 more)
+Nodes (16): markerPath(), BE_SPEC, BE_SRC, CASES, FE_SRC, FE_TEST, git(), makeRepo() (+8 more)
 
-### Community 41 - "Student Management API 2"
-Cohesion: 0.11
-Nodes (17): StudentsController, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags, Controller, Get (+9 more)
+### Community 41 - "StudentsController"
+Cohesion: 0.16
+Nodes (13): StudentsController, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags, Controller, Get (+5 more)
 
-### Community 42 - "Employee Entity Seeding"
-Cohesion: 0.11
-Nodes (18): AdminModule, Module, AppController, Controller, AppModule, Module, AppService, Injectable (+10 more)
+### Community 42 - "app.module.ts"
+Cohesion: 0.13
+Nodes (15): AppController, Controller, AppModule, Module, AppService, Injectable, AuthModule, Module (+7 more)
 
-### Community 43 - "User Data Tables"
+### Community 43 - "users/CustomTable.tsx"
 Cohesion: 0.14
-Nodes (19): RecentEntriesTable(), Badge(), BadgeProps, badgeVariants, Table, TableBody, TableCaption, TableCell (+11 more)
+Nodes (18): RecentEntriesTable(), Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader (+10 more)
 
-### Community 44 - "Settings Account Forms"
-Cohesion: 0.10
-Nodes (22): AccountForm(), accountFormSchema, AccountFormValues, defaultValues, TODO: Implement save functionality, Unresolved Reference: Form, FormControl, FormDescription (+14 more)
-
-### Community 45 - "Database Check Script 3"
-Cohesion: 0.08
-Nodes (22): External Package: node-process, backupDir, envPath, { error: envError }, outFile, probe, repoRoot, result (+14 more)
-
-### Community 46 - "JWT Authentication Guards"
-Cohesion: 0.12
-Nodes (8): JwtAuthGuard, Injectable, TokenBlacklistService, Injectable, InjectRepository, AdminLoginDto, IsNotEmpty, IsString
-
-### Community 47 - "Dashboard WebSocket Tests 2"
-Cohesion: 0.11
-Nodes (16): getUser(), TokenProps, Dashboard(), FakeWebSocket, fireEvent(), flushMicrotasks(), latestWs(), mockGet (+8 more)
-
-### Community 48 - "Root Tooling Scripts 2 2"
-Cohesion: 0.12
-Nodes (10): test, main(), photoOfRecordedLength(), main(), photoFor(), rng(), FakeBiostarServer, RecordedRequest (+2 more)
-
-### Community 49 - "JWT Authentication Guards 2"
+### Community 44 - "account-form.tsx"
 Cohesion: 0.13
-Nodes (14): IS_PUBLIC_KEY, Public(), HealthController, healthThreshold(), ApiTags, Controller, HealthModule, Module (+6 more)
+Nodes (15): AccountForm(), accountFormSchema, AccountFormValues, defaultValues, TODO: Implement save functionality, FormControl, FormDescription, FormField() (+7 more)
 
-### Community 50 - "Employee Entity Seeding 2"
-Cohesion: 0.16
-Nodes (13): guardNonProduction(), main(), printTargetDatabase(), requirePassword(), upsertEmployee(), upsertSuperAdmin(), Employee, Column (+5 more)
+### Community 45 - "backup-db.mjs"
+Cohesion: 0.22
+Nodes (8): backupDir, envPath, { error: envError }, outFile, probe, repoRoot, result, stamp
 
-### Community 51 - "Employee Entity Seeding 2"
-Cohesion: 0.13
-Nodes (11): ExampleController, Controller, Get, Param, Post, CACHE_TTL_KEY, CacheTTL(), NO_CACHE_KEY (+3 more)
+### Community 46 - "ScreensaverService"
+Cohesion: 0.29
+Nodes (4): ScreensaverModule, Module, ScreensaverService, Injectable
 
-### Community 52 - "DASMA Sync Verification Report"
+### Community 47 - "dashboard.test.tsx"
+Cohesion: 0.18
+Nodes (10): FakeWebSocket, fireEvent(), flushMicrotasks(), latestWs(), mockGet, mockPost, mountAndConnect(), postedReports (+2 more)
+
+### Community 48 - "photo-soak.ts"
+Cohesion: 0.12
+Nodes (11): main(), photoOfRecordedLength(), main(), photoFor(), rng(), USERS, BUSY_REPLY, FakeBiostarServer (+3 more)
+
+### Community 49 - "health.controller.ts"
+Cohesion: 0.15
+Nodes (13): IS_PUBLIC_KEY, Public(), HealthController, healthThreshold(), ApiOperation, ApiResponse, ApiTags, Controller (+5 more)
+
+### Community 50 - "Employee"
+Cohesion: 0.12
+Nodes (16): CreateEmployeeDto, ApiProperty, IsArray, IsBoolean, IsEmail, IsOptional, IsString, EmployeeModule (+8 more)
+
+### Community 51 - "cache-control.decorator.ts"
+Cohesion: 0.19
+Nodes (5): CACHE_TTL_KEY, NO_CACHE_KEY, NoCache(), HttpCacheInterceptor, Injectable
+
+### Community 52 - "DASMA sync verification report (2026-09-10)"
 Cohesion: 0.11
 Nodes (22): DASMA sync verification report (2026-09-10), BioStar CSV parser rejects quoted newlines (remarks flattened), Measured BioStar behaviour (photo_exists, visual_face_count, last_modified >=), BioStar capture replay (34 rows, photos rebuilt), Blank csn under import_option 2 deletes a BioStar card, Duplicated source ID re-imported forever, Correction: FakeBiostarServer last_modified must be inclusive, Correction: removing hardcoded group_id 1 was a no-op (BIOSTAR_LIST_GROUP_ID) (+14 more)
 
-### Community 53 - "ESLint Configuration Package"
+### Community 53 - "devDependencies"
+Cohesion: 0.06
+Nodes (31): @eslint/js, eslint-plugin-only-warn, eslint-plugin-react, eslint-plugin-react-hooks, eslint-plugin-turbo, @next/eslint-plugin-next, devDependencies, eslint (+23 more)
+
+### Community 54 - "ReportsService"
+Cohesion: 0.11
+Nodes (12): Report, Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, GateStats, StatsAggregate, ZERO_AGGREGATE (+4 more)
+
+### Community 55 - "Database Contracts"
+Cohesion: 0.14
+Nodes (21): HttpCacheInterceptor (Redis GET cache), RolesGuard + @Roles inconsistently applied, Sync scheduling (cron + SchedulerRegistry, Asia/Manila), GET /students/:idNumber (photo + card fallback), Database Contracts, admin table, biostar_row_hash (sha256 of last accepted CSV row), biostar_sync_state table (+13 more)
+
+### Community 56 - ".validateToken"
 Cohesion: 0.10
-Nodes (21): eslint-config-prettier, globals, eslint-config-prettier, globals, @eslint/js, eslint-plugin-only-warn, eslint-plugin-react, eslint-plugin-react-hooks (+13 more)
+Nodes (12): AdminLoginDto, IsNotEmpty, IsString, ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, Body (+4 more)
 
-### Community 54 - "DLSU-Lipa Scope Review 2"
-Cohesion: 0.15
-Nodes (14): GateStats, StatsAggregate, ZERO_AGGREGATE, ReportsModule, Module, POLLING_INTERVAL, K2: campus level vs per-room scope, R6: real-time occupancy meter (entry - exit over Socket.IO) (+6 more)
+### Community 57 - "CreateReportDto"
+Cohesion: 0.09
+Nodes (21): CreateReportDto, ApiProperty, IsDateString, IsNotEmpty, IsOptional, IsString, UpdateReportDto, ReportsController (+13 more)
 
-### Community 55 - "TDD Red Marker and Report Parsers"
-Cohesion: 0.19
-Nodes (16): parseJsonReport(), parseTapFailures(), changedEntries(), git(), main(), MARKER_FILE, parseArgs(), UsageError (+8 more)
-
-### Community 56 - "Screensaver Domain Backend 2"
-Cohesion: 0.12
-Nodes (12): ApiBearerAuth, ApiResponse, Get, UseGuards, InjectRepository, InjectRepository, SuperAdmin, Column (+4 more)
-
-### Community 57 - "Reports REST Controller"
-Cohesion: 0.16
-Nodes (14): ApiBody, ReportsController, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags, Controller (+6 more)
-
-### Community 58 - "Legacy Windows Deployment Guide"
+### Community 58 - "Windows Server Deployment Guide (PM2)"
 Cohesion: 0.13
-Nodes (16): Windows Server Deployment Guide (PM2), deploy-windows-server.bat (referenced; not present in deployment_docs/), Backend .env configuration (DB, Redis, PORT 10580, JWT_EXPIRES_IN=2d), Firewall rule for port 10580, Health endpoint :10580/health and /api/docs, NSSM Windows Service DLSUGateSystemBackend, PM2 test/staging deployment flow, PostgreSQL installation (+8 more)
+Nodes (17): Windows Server Deployment Guide (PM2), deploy-windows-server.bat (referenced; not present in deployment_docs/), Backend .env configuration (DB, Redis, PORT 10580, JWT_EXPIRES_IN=2d), Firewall rule for port 10580, Health endpoint :10580/health and /api/docs, NSSM Windows Service DLSUGateSystemBackend, PM2 test/staging deployment flow, PostgreSQL installation (+9 more)
 
-### Community 59 - "Backend TypeScript Configuration"
+### Community 59 - "compilerOptions"
 Cohesion: 0.11
 Nodes (18): compilerOptions, allowSyntheticDefaultImports, baseUrl, declaration, emitDecoratorMetadata, experimentalDecorators, forceConsistentCasingInFileNames, incremental (+10 more)
 
-### Community 60 - "Task Lifecycle"
-Cohesion: 0.19
-Nodes (19): Testing Strategy, Backend Coverage Gaps (users, super-admin, sync, screensaver), Verified Commands - Backend (Jest), CONTRACT DRIFT / CONTEXT DRIFT Marker, Dasma Sync E2E vs Real PostgreSQL + Fake BioStar, DASMA vs MTL Access-Status Mapping, Deep Task Verification, Dev-Mode Auth Bypass (+11 more)
+### Community 60 - "Testing Strategy"
+Cohesion: 0.17
+Nodes (21): Testing Strategy, Backend Coverage Gaps (users, super-admin, sync, screensaver), Verified Commands - Backend (Jest), CONTRACT DRIFT / CONTEXT DRIFT Marker, Dead "dashboard" Matcher-String Bug in middleware, Dasma Sync E2E vs Real PostgreSQL + Fake BioStar, DASMA vs MTL Access-Status Mapping, Deep Task Verification (+13 more)
 
-### Community 61 - "University Brand Identity"
+### Community 61 - "Institutional Seal"
 Cohesion: 0.15
 Nodes (18): De La Salle University Manila, De La Salle University Seal, Religio Mores Cultura, Star and Laurel Emblem, Dasmariñas Cavite Philippines, De La Salle University-Dasmariñas, De La Salle University-Dasmariñas Seal, Faith Service Communion (+10 more)
 
-### Community 62 - "Shadcn UI Configuration"
+### Community 62 - "components.json"
 Cohesion: 0.11
 Nodes (17): aliases, components, hooks, lib, ui, utils, iconLibrary, rsc (+9 more)
 
-### Community 63 - "Refactor and Planning Rules 2"
+### Community 63 - "Mandatory Pull Request Evidence (docs/ai/pr-evidence.md)"
 Cohesion: 0.18
 Nodes (17): Migrations additive and backward compatible, Mandatory Pull Request Evidence (docs/ai/pr-evidence.md), Backend/API/DB evidence: prev vs new behaviour, tests + command, example req/resp, logs, risks, Bug fix evidence: regression test failing before, passing after, repro, root cause, Change Type tags (UI/portal, Backend/API, Database, Bug fix, Refactor, Performance, Infrastructure/deploy, Tooling/docs), Open PR as draft (gh pr create --draft) when evidence cannot be produced, Evidence by Change Type, Infrastructure evidence: Infra lane operational-verification checklist (+9 more)
 
-### Community 64 - "react-internal Module"
-Cohesion: 0.20
-Nodes (12): config, nextJsConfig, config, External Package: eslint-config, External Package: eslint-config-prettier, External Package: eslint-js, External Package: eslint-plugin-only-warn, External Package: eslint-plugin-react (+4 more)
+### Community 64 - "react-internal.js"
+Cohesion: 0.43
+Nodes (3): config, nextJsConfig, config
 
-### Community 65 - "UI Package Tooling"
-Cohesion: 0.12
-Nodes (17): @types/node, @types/node, @types/react, @types/react-dom, devDependencies, eslint, @repo/eslint-config, @repo/typescript-config (+9 more)
+### Community 65 - "devDependencies"
+Cohesion: 0.07
+Nodes (28): dependencies, react, react-dom, devDependencies, eslint, @repo/eslint-config, @repo/typescript-config, @types/node (+20 more)
 
-### Community 66 - "Admin Management Backend"
-Cohesion: 0.16
-Nodes (8): ApiExtraModels, ApiSecurity, AdminController, ApiTags, Controller, AdminService, Injectable, InjectRepository
+### Community 66 - "admin.controller.ts"
+Cohesion: 0.07
+Nodes (32): ApiExtraModels, ApiSecurity, AdminController, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse (+24 more)
 
 ### Community 67 - "Agent Orchestration"
-Cohesion: 0.24
-Nodes (16): Agent Orchestration, accessibility-auditor, code-reviewer, database-architect, File Ownership Rule, GLOBAL_POLICY (shared persona policy), Main session is the orchestrator, nestjs-backend-dev (+8 more)
+Cohesion: 0.11
+Nodes (29): Agent Orchestration, accessibility-auditor, code-reviewer, database-architect, File Ownership Rule, GLOBAL_POLICY (shared persona policy), Main session is the orchestrator, nestjs-backend-dev (+21 more)
 
-### Community 68 - "Base TypeScript Configuration"
-Cohesion: 0.12
-Nodes (15): compilerOptions, declaration, declarationMap, esModuleInterop, incremental, isolatedModules, module, moduleDetection (+7 more)
+### Community 68 - "compilerOptions"
+Cohesion: 0.10
+Nodes (19): compilerOptions, declaration, declarationMap, esModuleInterop, incremental, isolatedModules, lib, module (+11 more)
 
-### Community 69 - "Next.js TypeScript Configuration"
-Cohesion: 0.12
-Nodes (14): compilerOptions, allowJs, jsx, module, moduleResolution, noEmit, plugins, extends (+6 more)
+### Community 69 - "compilerOptions"
+Cohesion: 0.18
+Nodes (10): compilerOptions, allowJs, jsx, module, moduleResolution, noEmit, plugins, extends (+2 more)
 
-### Community 70 - "Monorepo Package Tooling 2"
-Cohesion: 0.13
-Nodes (15): dotenv, typescript, typescript, devDependencies, dotenv, patch-package, prettier, turbo (+7 more)
+### Community 70 - "devDependencies"
+Cohesion: 0.18
+Nodes (11): devDependencies, dotenv, patch-package, prettier, turbo, typescript, dotenv, prettier (+3 more)
 
-### Community 71 - "middleware Module"
-Cohesion: 0.14
-Nodes (5): config, DecodedToken, Dead "dashboard" Matcher-String Bug in middleware, Frontend Coverage Gaps (hooks, middleware, auth-context, MSW handlers), External Package: next-server
+### Community 72 - "chart.tsx"
+Cohesion: 0.18
+Nodes (7): ChartConfig, ChartContainer, ChartContext, ChartContextProps, ChartLegendContent, ChartTooltipContent, THEMES
 
-### Community 72 - "Chart Visualization UI"
-Cohesion: 0.13
-Nodes (10): GateUsageChart(), GateUsageChartProps, ChartConfig, ChartContainer, ChartContext, ChartContextProps, ChartLegendContent, ChartTooltipContent (+2 more)
+### Community 73 - "compilerOptions"
+Cohesion: 0.07
+Nodes (26): compilerOptions, allowJs, esModuleInterop, incremental, isolatedModules, jsx, lib, module (+18 more)
 
-### Community 73 - "Frontend TypeScript Configuration"
-Cohesion: 0.13
-Nodes (15): compilerOptions, allowJs, esModuleInterop, incremental, isolatedModules, jsx, module, moduleResolution (+7 more)
+### Community 74 - "cn"
+Cohesion: 0.10
+Nodes (18): OperationSettings(), items, SettingsNav(), Checkbox, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel (+10 more)
 
-### Community 74 - "Admin Management Backend 2"
-Cohesion: 0.25
-Nodes (10): ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, Body, Get, Param (+2 more)
+### Community 75 - "UserPaginationDto"
+Cohesion: 0.10
+Nodes (17): GenerateCsvDto, ApiProperty, IsArray, IsDateString, IsEnum, Transform, ApiPropertyOptional, IsDateString (+9 more)
 
-### Community 75 - "Users Bulk Operations"
-Cohesion: 0.23
-Nodes (10): ApiBody, ApiOperation, ApiQuery, ApiResponse, Body, Get, Header, Post (+2 more)
+### Community 77 - "Dev Environment"
+Cohesion: 0.11
+Nodes (20): Campus-aware config (DASMA vs MTL), reports.status compound string (COLOR;reason), SOURCE_DB_SCHEMA_ENV main vs dasma strategies, Dev Environment, Campus Mode Pairing (SOURCE_DB_SCHEMA_ENV + NEXT_PUBLIC_CAMPUS), Detected Stack (Bun + Turborepo, NestJS 11, Next.js 15), Dev Commands Quick Reference, ENABLE_BIOSTAR_SYNC (+12 more)
 
-### Community 76 - "axios Module"
-Cohesion: 0.15
-Nodes (14): dependencies, axios, @hookform/resolvers, @radix-ui/react-tabs, @radix-ui/react-toast, @radix-ui/react-tooltip, react-hook-form, @types/socket.io-client (+6 more)
+### Community 78 - "AGENTS.md"
+Cohesion: 0.08
+Nodes (34): Repository-local AI workflow layer, Canonical Task Flow (always-on, mandatory), Caveman ultra communication default, Core principles (1-10 + 6b), Development environment (local PG/Redis, WS2022 NSSM prod), English only everywhere, Fresh worktree per task, never commit to main, No scope creep (+26 more)
 
-### Community 77 - "Frontend Mock Data 2"
-Cohesion: 0.16
-Nodes (14): Dev Environment, Campus Mode Pairing (SOURCE_DB_SCHEMA_ENV + NEXT_PUBLIC_CAMPUS), Detected Stack (Bun + Turborepo, NestJS 11, Next.js 15), Dev Commands Quick Reference, ENABLE_BIOSTAR_SYNC, JWT_SECRET, NEXT_PUBLIC_API_URL, NEXT_PUBLIC_BIOSTAR_API (+6 more)
-
-### Community 78 - "Safety Invariants and Personas 2"
-Cohesion: 0.15
-Nodes (13): Canonical Task Flow (always-on, mandatory), Node B: Route task (task-router.md, Task Classification block), Node D: RCA first for bugs (bugfix-rca.md), stop for approval, Node I/J: UNVERIFIED DEPENDENCY marking, Node K: Reuse scan via Graphify, Node L: Write plan (planning.md + plan-template.md), Node Q: Question/review read-only answer, Node U: same model tier and reasoning level check (+5 more)
-
-### Community 79 - "cache-manager Module"
-Cohesion: 0.15
-Nodes (13): dependencies, cache-manager, ioredis, jimp, @nestjs/terminus, pg, rxjs, cache-manager (+5 more)
-
-### Community 80 - "Jest Test Configuration"
+### Community 80 - "jest"
 Cohesion: 0.15
 Nodes (13): jest, collectCoverageFrom, coverageDirectory, moduleFileExtensions, rootDir, testEnvironment, testRegex, transform (+5 more)
 
-### Community 81 - "Fake BioStar Server"
+### Community 81 - "scripts/fake-biostar-server.ts"
+Cohesion: 0.18
+Nodes (7): FAKE_USERS, FakeCustomField, FakeUser, FireEventBody, FireEventRequest, server, wss
+
+### Community 82 - "SyncController"
 Cohesion: 0.15
-Nodes (9): FAKE_USERS, FakeCustomField, FakeUser, FireEventBody, FireEventRequest, server, wss, External Package: node-http (+1 more)
+Nodes (11): CacheTTL(), SyncController, ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags, Controller (+3 more)
 
-### Community 82 - "Sync Cache Controllers"
-Cohesion: 0.20
-Nodes (9): SyncController, ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, Controller, Get, UseGuards (+1 more)
-
-### Community 83 - "Task Lifecycle 2"
+### Community 83 - "npm run tdd:gate"
 Cohesion: 0.21
 Nodes (12): Integration sequence, npm run tdd:gate, Case Order error: > edge: > regression: > happy:, Known Limits of TDD Enforcement, Mandatory Test Layers, No CI - Gate Run by Hand Before PR, npm run tdd:red, RED Before Any Implementation (+4 more)
 
-### Community 84 - "Graphify Memory: Employee and Super Admin"
+### Community 84 - "Graphify memory: Should Employee Management Backend be split?"
 Cohesion: 0.17
 Nodes (12): Graphify memory: Should Employee Management Backend be split?, Should Employee Management Backend be split?, CreateEmployeeDto, Employee, EmployeeManagementController, EmployeeManagementService, Graphify memory: Should Super Admin Controller be split?, Should Super Admin Controller be split? (+4 more)
 
-### Community 85 - "Database Check Script 4"
-Cohesion: 0.18
-Nodes (8): External Package: pg, candidates(), envPath, passwords, port, raw, rawValue(), repoRoot
+### Community 85 - "check-db.mjs"
+Cohesion: 0.20
+Nodes (7): candidates(), envPath, passwords, port, raw, rawValue(), repoRoot
 
-### Community 86 - "nest-cli Module"
+### Community 86 - "nest-cli.json"
 Cohesion: 0.18
 Nodes (10): collection, compilerOptions, deleteOutDir, $schema, sourceRoot, Graphify memory: What connects schema collection and sourceRoot to the rest of the system?, What connects schema collection and sourceRoot to the rest of the system?, collection (+2 more)
 
-### Community 87 - "UI Package Scripts"
+### Community 87 - "scripts"
 Cohesion: 0.18
 Nodes (11): scripts, build, check-types, dev, docker-build, docker-fresh-build, lint, start (+3 more)
 
-### Community 88 - "Graphify Memory: Tooling and Sidebar"
+### Community 88 - "Graphify memory: Should Root Tooling Scripts be split?"
 Cohesion: 0.18
 Nodes (11): Graphify memory: Should Root Tooling Scripts be split?, Should Root Tooling Scripts be split?, config, Module, ROOT, Graphify memory: Should Sidebar Navigation UI be split?, Should Sidebar Navigation UI be split?, AppSidebar (+3 more)
 
-### Community 89 - "Backend Package Metadata"
+### Community 89 - "backend/package.json"
 Cohesion: 0.20
 Nodes (9): author, description, license, name, overrides, buffer-equal-constant-time, jwa, private (+1 more)
 
-### Community 90 - "Common Database Sync 2"
+### Community 90 - "biostar-probe.ts"
 Cohesion: 0.31
 Nodes (9): Args, banner(), DASMA_CSV_HEADERS, hostOf(), httpsAgent, main(), parseArgs(), redactPhoto() (+1 more)
 
-### Community 91 - "Admin Management Backend 2"
-Cohesion: 0.20
-Nodes (10): BasePaginationDto, ApiPropertyOptional, IsInt, IsOptional, IsString, Min, StudentPaginationDto, ApiPropertyOptional (+2 more)
+### Community 91 - "BasePaginationDto"
+Cohesion: 0.13
+Nodes (16): BasePaginationDto, ApiPropertyOptional, IsInt, IsOptional, IsString, Min, EnhancedReportQueryDto, IsDateString (+8 more)
 
-### Community 92 - "UI Package Scripts 2"
+### Community 92 - "portal-web/package.json"
 Cohesion: 0.20
 Nodes (9): msw, workerDirectory, name, overrides, react-is, private, version, Verified Commands - Frontend (Vitest) (+1 more)
 
-### Community 93 - "Abstract Pattern Asset"
+### Community 93 - "Abstract Contour Pattern Image"
 Cohesion: 0.22
 Nodes (10): Contour Line Pattern, Decorative Background Asset, Edge-Continuing Pattern, High-Contrast Graphic Treatment, Irregular Enclosed Shapes, Black and White Monochrome Palette, Nested Contour Bands, Organic Flowing Curves (+2 more)
 
-### Community 94 - "VERIFYI Brand Identity"
+### Community 94 - "VERIFYI Logo Image"
 Cohesion: 0.22
 Nodes (10): Edge Geometric Accents, Horizontal Brand Lockup, VERIFYI Logo Image, Parallel Stripe Motif, Rounded Rectangle Banner, Stylized V Mark, Teal Brand Palette, Verification Brand Identity (+2 more)
 
-### Community 95 - "Frontend TypeScript Configuration 2"
-Cohesion: 0.20
-Nodes (9): exclude, include, **/*.ts, exclude, dist, node_modules, next-env.d.ts, .next/types/**/*.ts (+1 more)
+### Community 95 - "DatabaseSyncCommonService"
+Cohesion: 0.13
+Nodes (4): InjectRepository, InjectRepository, DatabaseSyncCommonService, Injectable
 
-### Community 96 - "Community 96"
-Cohesion: 0.28
-Nodes (9): Automatic agent routing default (project-manager persona first), npm run agents:generate (command), database-architect persona, nestjs-backend-dev persona, nextjs-frontend-dev persona, project-manager persona, test-engineer persona, Shared contract: backend DTO owned by backend, mirrored by frontend (+1 more)
+### Community 96 - "DatabaseSyncController"
+Cohesion: 0.22
+Nodes (13): Roles(), DatabaseSyncController, ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags, Body (+5 more)
 
-### Community 97 - "ELID Technology Intl Inc"
+### Community 97 - "ELID Technology Intl. Inc. Logo Image"
 Cohesion: 0.25
 Nodes (9): Blue Brand Palette, Company Name Caption, Corporate Logo Lockup, ELID Technology Intl. Inc., Stylized ELID Wordmark, Elliptical Swoosh, Horizontal Line Motif, International Technology Brand (+1 more)
 
-### Community 98 - "mockServiceWorker Module"
+### Community 98 - "mockServiceWorker.js"
 Cohesion: 0.42
 Nodes (8): activeClientIds, getResponse(), handleRequest(), IS_MOCKED_RESPONSE, resolveMainClient(), respondWithMock(), sendToClient(), serializeRequest()
 
-### Community 99 - "Monorepo Package Tooling 3"
+### Community 99 - "package.json"
+Cohesion: 0.17
+Nodes (11): Unknown Requirements Become Blockers, Verification Command Discovery Rule, Verified Commands - Root (Turborepo, Bun 1.2.22), engines, node, name, packageManager, private (+3 more)
+
+### Community 100 - "ReportsPageContainer.tsx"
+Cohesion: 0.08
+Nodes (29): CustomExport(), AccessProps, GateAccessStat(), GateAccessStatProps, GateAccessStats(), getStatusStyles(), GateUsageChart(), GateUsageChartProps (+21 more)
+
+### Community 101 - "EmployeeService"
+Cohesion: 0.28
+Nodes (3): EmployeeService, Injectable, InjectRepository
+
+### Community 102 - "UsersService"
+Cohesion: 0.12
+Nodes (11): PaginationQueryDto, ApiPropertyOptional, IsBoolean, IsInt, IsOptional, IsString, Min, ApiProperty (+3 more)
+
+### Community 103 - "exclude"
 Cohesion: 0.22
-Nodes (8): engines, node, name, packageManager, private, workspaces, apps/*, packages/*
+Nodes (8): exclude, extends, dist, node_modules, test, scripts, **/*spec.ts, ./tsconfig.json
 
-### Community 100 - "ESLint Configuration Package 2"
-Cohesion: 0.22
-Nodes (8): exports, ./base, ./next-js, ./react-internal, name, private, type, version
+### Community 104 - "ui/tsconfig.json"
+Cohesion: 0.18
+Nodes (10): compilerOptions, outDir, strictNullChecks, exclude, extends, include, dist, node_modules (+2 more)
 
-### Community 101 - "UI Package Tooling 2"
-Cohesion: 0.22
-Nodes (8): exports, name, private, scripts, check-types, generate:component, lint, version
+### Community 105 - "database-sync.controller.ts"
+Cohesion: 0.11
+Nodes (16): RolesGuard, Injectable, DeleteUsersDto, ApiProperty, IsArray, IsString, ApiProperty, UpdateScheduleDto (+8 more)
 
-### Community 102 - "Admin Management Backend 3"
-Cohesion: 0.25
-Nodes (8): PaginationQueryDto, ApiPropertyOptional, IsBoolean, IsInt, IsOptional, IsString, Min, Type
+### Community 106 - "BulkDeactivateDto"
+Cohesion: 0.13
+Nodes (15): BulkDeactivateDto, ApiProperty, IsArray, IsEnum, IsNotEmpty, IsString, ApiBearerAuth, ApiBody (+7 more)
 
-### Community 103 - "exclude Module"
-Cohesion: 0.25
-Nodes (7): exclude, extends, dist, test, scripts, **/*spec.ts, ./tsconfig.json
+### Community 107 - "Changes feed for `GET /sync/students`: paging plus "only what changed" for the mobile app"
+Cohesion: 0.11
+Nodes (18): Acceptance map (criterion → file → symbol → step → validation), Changes feed for `GET /sync/students`: paging plus "only what changed" for the mobile app, Compatibility, docs, and scans, Contract (locked; handed to the mobile dev as `docs/sync-students-mobile-contract.md`), Decisions (simplest correct approach; each rejected simpler option named), Edge and error cases enumerated (file, function, branch), Flowchart (high-level, SVG), Open items (decisions or facts the plan cannot settle from the repo) (+10 more)
 
-### Community 104 - "UI TypeScript Configuration"
-Cohesion: 0.25
-Nodes (7): compilerOptions, outDir, strictNullChecks, extends, include, @repo/typescript-config/react-library.json, src
+### Community 108 - "portal-web/eslint.config.mjs"
+Cohesion: 0.40
+Nodes (4): compat, __dirname, eslintConfig, __filename
 
-### Community 105 - "BulkDeactivateDto Module"
-Cohesion: 0.29
-Nodes (6): BulkDeactivateDto, ApiProperty, IsArray, IsEnum, IsNotEmpty, IsString
+### Community 109 - "ExampleController"
+Cohesion: 0.12
+Nodes (9): ExampleController, Body, Controller, Get, Param, Post, CacheService, Inject (+1 more)
 
-### Community 106 - "User Roles Backend"
-Cohesion: 0.29
-Nodes (6): BulkReactivateDto, ApiProperty, IsArray, IsEnum, IsNotEmpty, IsString
-
-### Community 108 - "Sync Module Backend"
-Cohesion: 0.29
-Nodes (6): compat, __dirname, eslintConfig, __filename, External Package: eslint-eslintrc, Runtime Module: url
-
-### Community 109 - "Frontend TypeScript Configuration 3"
-Cohesion: 0.29
-Nodes (7): lib, dom, dom.iterable, lib, DOM, es2022, esnext
-
-### Community 110 - "typescript-config package"
+### Community 110 - "typescript-config/package.json"
 Cohesion: 0.29
 Nodes (6): license, name, private, publishConfig, access, version
 
-### Community 111 - "Aug 11 EOD Report"
+### Community 111 - "Tuesday, Aug 11 EOD report"
 Cohesion: 0.48
 Nodes (7): Tuesday, Aug 11 EOD report, Docker Engine + Compose on ~7.1 TB RAID storage, Phase 0 server security and base setup, romeo admin account, SSH key-only access (root and password login disabled), Time estimate comparison (0.5-1 day), UFW firewall (deny incoming, allow 22)
 
@@ -814,35 +818,27 @@ Nodes (7): Tuesday, Aug 11 EOD report, Docker Engine + Compose on ~7.1 TB RAID s
 Cohesion: 0.53
 Nodes (6): Biostar Access Control, DLSU Database View, Mobile Application, Verifyi Backend REST API, Verifyi Backend System Architecture, Socket.IO Gateway Test
 
-### Community 113 - "Admin Management Backend 3"
-Cohesion: 0.33
-Nodes (5): ApiProperty, IsOptional, IsString, MinLength, UpdateAdminDto
+### Community 113 - "DatabaseSyncQueueService"
+Cohesion: 0.16
+Nodes (9): DatabaseSyncQueueService, Injectable, InjectRepository, SyncQueue, Column, CreateDateColumn, Entity, PrimaryGeneratedColumn (+1 more)
 
-### Community 114 - "Admin Management Backend 2 2"
-Cohesion: 0.33
-Nodes (5): EnhancedReportQueryDto, IsDateString, IsEnum, IsOptional, MinLength
+### Community 115 - "students.controller.ts"
+Cohesion: 0.16
+Nodes (11): GenerateStudentCsvDto, ApiProperty, IsBoolean, IsDateString, IsOptional, Transform, StudentsModule, Module (+3 more)
 
-### Community 115 - "Student Management API 3"
-Cohesion: 0.33
-Nodes (6): GenerateStudentCsvDto, ApiProperty, IsBoolean, IsDateString, IsOptional, Transform
+### Community 116 - "Mobile guide: the new student sync (`GET /sync/students`)"
+Cohesion: 0.13
+Nodes (14): 10. Good to know, 11. Questions we need you to answer, 1. The idea in 30 seconds, 2. What you need to change (checklist), 3. The calls, 4. Step by step, 4A. First sync (empty local table, or no saved `studentsSyncToken`), 4B. Every later sync (you have a saved `studentsSyncToken`) (+6 more)
 
-### Community 116 - "GenerateCsvDto Module"
-Cohesion: 0.33
-Nodes (6): GenerateCsvDto, ApiProperty, IsArray, IsDateString, IsEnum, Transform
+### Community 117 - "sync.service.ts"
+Cohesion: 0.18
+Nodes (10): SyncService, SyncStudent, SyncStudentsResponse, Injectable, InjectRepository, decodeFeedToken(), encodeFeedToken(), FeedMode (+2 more)
 
-### Community 117 - "Users Bulk Operations 2"
-Cohesion: 0.33
-Nodes (5): ApiBearerAuth, ApiTags, Controller, UseGuards, UsersController
-
-### Community 118 - "UI Package Tooling 3"
-Cohesion: 0.33
-Nodes (6): react-dom, dependencies, react, react-dom, react, react-dom
-
-### Community 119 - "Graphify Memory: Turnstile Dashboard"
+### Community 119 - "Graphify memory: Should Turnstile Dashboard UI be split?"
 Cohesion: 0.33
 Nodes (6): Graphify memory: Should Turnstile Dashboard UI be split?, Should Turnstile Dashboard UI be split?, Dashboard, EntriesLog, TurnstileDashboard, TurnstileGrid
 
-### Community 120 - "AI Engineering Governance 2"
+### Community 120 - "Autonomous Engineering Constitution"
 Cohesion: 0.40
 Nodes (5): Autonomous Engineering Constitution, Human Control of Business Decisions and Production Risk, Safety-System Correctness, Decision Framework, Correctness-First Solution Priority
 
@@ -850,27 +846,27 @@ Nodes (5): Autonomous Engineering Constitution, Human Control of Business Decisi
 Cohesion: 0.40
 Nodes (5): Authentication Error Contract, Backend Error Catalog, Database Sync Error Contract, Reports Error Contract, Screensaver Error Contract
 
-### Community 122 - "JWT Authentication Guards 3"
-Cohesion: 0.40
-Nodes (4): ApiOperation, ApiResponse, Get, HealthCheck
+### Community 122 - "DASMA → BioStar: import in small steps, stop when BioStar is busy, and look cards up from one list"
+Cohesion: 0.14
+Nodes (13): Compatibility, docs, and scans, DASMA → BioStar: import in small steps, stop when BioStar is busy, and look cards up from one list, Flowchart (high-level), Phase 0 — Local reset of stuck job 28 (`opus`, high) — runs right after approval, primary checkout DB only, Phase 1 — Worktree, carry-over, plan copy (`opus`, high), Phase 2 — RED (`opus`, high), Phase 3 — GREEN (`opus`, high), Phase 4 — Validation (`opus`, high) (+5 more)
 
-### Community 123 - "UserPaginationDto Module"
-Cohesion: 0.40
-Nodes (5): ApiPropertyOptional, IsDateString, IsEnum, IsOptional, UserPaginationDto
+### Community 123 - "SyncStudentsQueryDto"
+Cohesion: 0.18
+Nodes (10): SYNC_STUDENTS_DEFAULT_LIMIT, SYNC_STUDENTS_MAX_LIMIT, SyncStudentsQueryDto, ApiPropertyOptional, IsInt, IsOptional, IsString, Min (+2 more)
 
 ### Community 124 - "Smiling Person Portrait"
 Cohesion: 0.40
 Nodes (5): Hand Cupped Beside Ear, Listening Gesture, Outdoor Blurred Background, Red Hoodie, Smiling Person Portrait
 
-### Community 126 - "UI Package Tooling 2 2"
-Cohesion: 0.50
-Nodes (4): eslint, eslint, eslint, eslint
+### Community 127 - "DASMA sync: skip what didn't change — SQL skip check, one-query read, card checks only for sent rows, one BioStar login, audit-log photo detection"
+Cohesion: 0.15
+Nodes (12): Compatibility, docs, and scans, DASMA sync: skip what didn't change — SQL skip check, one-query read, card checks only for sent rows, one BioStar login, audit-log photo detection, Flowchart (high-level), Phase 1 — Worktree + plan copy (`opus`, high), Phase 2 — RED (`opus`, high), Phase 3 — GREEN (`opus`, high), Phase 4 — Validation (`opus`, high), Phase 5 — Sandbox rerun (`opus`, high) (+4 more)
 
-### Community 154 - "CreateAdminDto Module"
-Cohesion: 0.50
-Nodes (4): CreateAdminDto, ApiProperty, IsNotEmpty, IsString
+### Community 154 - "CreateAdminDto"
+Cohesion: 0.33
+Nodes (5): CreateAdminDto, ApiProperty, IsNotEmpty, IsString, UserRole
 
-### Community 155 - "Backend Windows Server 2022"
+### Community 155 - "Portal Windows Server Deployment Guide"
 Cohesion: 0.50
 Nodes (4): Portal Windows Server Deployment Guide, Portal Windows Server Deployment Quick Reference, Frontend Windows Server 2022 Production Deployment, Monorepo Windows Server 2022 Deployment
 
@@ -878,7 +874,7 @@ Nodes (4): Portal Windows Server Deployment Guide, Portal Windows Server Deploym
 Cohesion: 0.50
 Nodes (4): Document Sheet, File Document Icon, Folded Page Corner, Document Text Lines
 
-### Community 157 - "Vercel Module"
+### Community 157 - "Vercel"
 Cohesion: 0.50
 Nodes (4): Vercel, Vercel Triangle Mark, Web Deployment Platform, White Triangle Symbol
 
@@ -886,21 +882,29 @@ Nodes (4): Vercel, Vercel Triangle Mark, Web Deployment Platform, White Triangle
 Cohesion: 0.50
 Nodes (4): Application Window Frame, Content Viewport, Three Window Controls, Window Interface Icon
 
-### Community 160 - "Monorepo Package Tooling 3 2"
-Cohesion: 0.67
-Nodes (3): Unknown Requirements Become Blockers, Verification Command Discovery Rule, Verified Commands - Root (Turborepo, Bun 1.2.22)
+### Community 160 - "DASMA sync: bring back the synced-records file, complete for the whole day"
+Cohesion: 0.18
+Nodes (10): Compatibility, docs, and scans, DASMA sync: bring back the synced-records file, complete for the whole day, Flowchart (high-level), Phase 1 — RED (`opus`, high), Phase 2 — GREEN (`opus`, high), Phase 3 — Validation (`opus`, high), Phase 4 — Review and handoff (`opus`, high), Rollback (+2 more)
 
-### Community 161 - "Engineering Workflow Templates"
+### Community 161 - "Bootstrap Validation Workflow"
 Cohesion: 0.67
 Nodes (3): Agent Contract Validation, Bootstrap Validation Workflow, Bootstrap Repair Loop
 
-### Community 163 - "BulkDeactivateDto Module 2"
-Cohesion: 0.67
-Nodes (3): BulkDeactivateResponseDto, DeactivationStatus, ApiProperty
+### Community 162 - "UI/UX Designer prompt"
+Cohesion: 0.22
+Nodes (10): Accessibility Auditor prompt, WCAG_AA_PASS / WCAG_AA_FAIL verdict, WCAG 2.1 AA checklist, READY / NEEDS_CHANGES verdict, Loading/empty/error/success states, SAFE_TO_MERGE / BLOCKED verdict, UI/UX Designer prompt, Required data-view states (+2 more)
 
-### Community 164 - "User Roles Backend 2"
-Cohesion: 0.67
-Nodes (3): BulkReactivateResponseDto, ReactivationStatus, ApiProperty
+### Community 163 - "Dashboard"
+Cohesion: 0.11
+Nodes (16): Dashboard(), baseUser, FakeWebSocket, mockGet, mockPost, mountAndOpen(), postedReports, TurnstileDashboard() (+8 more)
+
+### Community 164 - "useReportSocket.tsx"
+Cohesion: 0.36
+Nodes (6): MockModeProvider(), GateStats, useReportsSocket(), isMockMode(), mockSocketStats, Mock mode (MSW)
+
+### Community 165 - "Plan — count "user not found in BioStar" as a finished remark clear"
+Cohesion: 0.20
+Nodes (9): Compatibility, docs, and scans, Phase 1 — RED (`opus`, high), Phase 2 — GREEN (`opus`, high), Phase 3 — Validation and live check (`opus`, high), Plan — count "user not found in BioStar" as a finished remark clear, RCA — remark clear for a user BioStar does not hold "fails" on every sync, Rollback, Task metadata (+1 more)
 
 ### Community 166 - "Default User Avatar"
 Cohesion: 1.00
@@ -910,9 +914,45 @@ Nodes (3): Default User Avatar, Generic User Silhouette, Profile Image Placehold
 Cohesion: 0.67
 Nodes (3): Global Web, Globe Icon, Spherical Coordinate Grid
 
-### Community 168 - "Next Module"
+### Community 168 - "Next.js"
 Cohesion: 0.67
 Nodes (3): Next.js, Next.js Wordmark, Web Application Framework
+
+### Community 173 - "dependencies"
+Cohesion: 0.15
+Nodes (13): dependencies, cache-manager-redis-store, cron, date-fns, @faker-js/faker, @nestjs/passport, passport-jwt, cache-manager-redis-store (+5 more)
+
+### Community 181 - "sheet.tsx"
+Cohesion: 0.22
+Nodes (8): SheetContent, SheetContentProps, SheetDescription, SheetFooter(), SheetHeader(), SheetOverlay, SheetTitle, sheetVariants
+
+### Community 185 - "BioStar "busy" reply crashes the BioStar → Postgres sync (photo never arrives)"
+Cohesion: 0.25
+Nodes (7): Amendment (approved by Romeo 2026-09-25: "ok proceed"): page the user list by `user_id`, BioStar "busy" reply crashes the BioStar → Postgres sync (photo never arrives), Phase 1 — RED, Phase 2 — GREEN, Phase 3 — Validation, review, live check, push, RCA (approved by Romeo 2026-09-25: "ok do that"), Task metadata
+
+### Community 197 - "run-with-root-env.mjs"
+Cohesion: 0.25
+Nodes (7): args, binDirs, child, childEnv, envPath, { error }, repoRoot
+
+### Community 205 - "seed-qa-test-account.ts"
+Cohesion: 0.52
+Nodes (6): guardNonProduction(), main(), printTargetDatabase(), requirePassword(), upsertEmployee(), upsertSuperAdmin()
+
+### Community 216 - "verify-env.mjs"
+Cohesion: 0.29
+Nodes (6): envPath, missing, placeholders, repoRoot, requiredByTarget, stillExample
+
+### Community 218 - "react-library.json"
+Cohesion: 0.33
+Nodes (5): compilerOptions, jsx, extends, ./base.json, $schema
+
+### Community 222 - "dependencies"
+Cohesion: 0.22
+Nodes (9): dependencies, js-cookie, @radix-ui/react-dropdown-menu, socket.io-client, tailwindcss-animate, js-cookie, @radix-ui/react-dropdown-menu, socket.io-client (+1 more)
+
+### Community 271 - "EnhancedReportQueryDto"
+Cohesion: 0.38
+Nodes (7): EnhancedReportQueryDto, GateAnalyticsQueryDto, GenerateCSVDto, IsDateString, IsEnum, IsOptional, MinLength
 
 ## Ambiguous Edges - Review These
 - `database-sync.service.ts` → `studentMutationLock Concurrency Tests`  [AMBIGUOUS]
@@ -923,9 +963,9 @@ Nodes (3): Next.js, Next.js Wordmark, Web Application Framework
   docs/plans/chore-claude-workflow-port.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **888 isolated node(s):** `$schema`, `collection`, `sourceRoot`, `deleteOutDir`, `ROLES_KEY` (+883 more)
+- **955 isolated node(s):** `dir`, `persona`, `dir`, `persona`, `dir` (+950 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **144 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **168 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
@@ -936,11 +976,11 @@ _Questions this graph is uniquely positioned to answer:_
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `Senior Staff Full Stack AI Engineer persona (NestJS/TypeORM/PostgreSQL/Redis + Next.js 15, WS2022 NSSM, Bun+Turborepo)` and `Production runs one NSSM Windows service, not PM2`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal` connect `Workflow Port Plan` to `AI Engineering Governance`, `Backend Module Wiring`, `API Contracts and Domain Briefings`, `Frontend Mock Data`, `Safety Invariants and Personas`, `TDD Gate`, `CLAUDE.md Stack and Security`, `Task Lifecycle 2`, `Refactor and Planning Rules`, `Persona Generator`, `Database Check Script 2`, `TDD Red Marker and Report Parsers`, `Task Lifecycle`, `Refactor and Planning Rules 2`, `Agent Orchestration`, `Monorepo Package Tooling 2`, `Frontend Mock Data 2`, `Safety Invariants and Personas 2`, `Backend Package Metadata`, `UI Package Scripts 2`, `Community 96`, `Monorepo Package Tooling 3`?**
-  _High betweenness centrality (0.227) - this node is a cross-community bridge._
-- **Why does `Repository Map` connect `Backend Module Wiring` to `Turnstile Dashboard UI`, `Database Sync Modules`, `Workflow Port Plan`, `Screensaver Domain Backend`, `Student Management API`, `Frontend Mock Data`, `Frontend Auth Layout`, `Dashboard WebSocket Tests`, `Task Lifecycle 2`, `Refactor and Planning Rules`, `Employee Entity Seeding`, `Dashboard WebSocket Tests 2`, `Root Tooling Scripts 2 2`, `JWT Authentication Guards 2`, `Employee Entity Seeding 2`, `Employee Entity Seeding 2`, `DLSU-Lipa Scope Review 2`, `Legacy Windows Deployment Guide`, `Monorepo Package Tooling 2`, `middleware Module`, `Monorepo Package Tooling 3`?**
-  _High betweenness centrality (0.128) - this node is a cross-community bridge._
-- **Why does `Testing Strategy` connect `Task Lifecycle` to `Turnstile Dashboard UI`, `Database Sync Modules`, `AI Engineering Governance`, `Backend Module Wiring`, `Workflow Port Plan`, `Screensaver Domain Backend`, `Frontend Mock Data`, `Safety Invariants and Personas`, `TDD Gate`, `Frontend Auth Layout`, `Dashboard WebSocket Tests`, `Task Lifecycle 2`, `Refactor and Planning Rules`, `Monorepo Package Tooling 3 2`, `Database Check Script 3`, `Root Tooling Scripts 2 2`, `middleware Module`, `Task Lifecycle 2`, `Backend Package Metadata`, `UI Package Scripts 2`, `Monorepo Package Tooling 3`?**
-  _High betweenness centrality (0.123) - this node is a cross-community bridge._
-- **What connects `$schema`, `collection`, `sourceRoot` to the rest of the system?**
-  _888 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal` connect `Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal` to `Canonical Files Inventory`, `Repository Map`, `Module Ownership Map`, `Planning Rules`, `tdd-lib.mjs`, `CLAUDE.md (project facts)`, `Handoff and Integration`, `Task Router`, `useReportSocket.tsx`, `generate-agent-defs.mjs`, `test-repo.mjs`, `Database Contracts`, `Testing Strategy`, `Mandatory Pull Request Evidence (docs/ai/pr-evidence.md)`, `Agent Orchestration`, `Dev Environment`, `AGENTS.md`, `backend/package.json`, `portal-web/package.json`, `package.json`?**
+  _High betweenness centrality (0.157) - this node is a cross-community bridge._
+- **Why does `Repository Map` connect `Repository Map` to `dashboard.tsx`, `database-sync.service.ts`, `Module Ownership Map`, `Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal`, `login.service.ts`, `users.controller.ts`, `handlers/index.ts`, `app/layout.tsx`, `auth/jwt-auth.guard.ts`, `Handoff and Integration`, `Task Router`, `useReportSocket.tsx`, `app.module.ts`, `ScreensaverService`, `photo-soak.ts`, `health.controller.ts`, `Employee`, `ReportsService`, `Database Contracts`, `Windows Server Deployment Guide (PM2)`, `admin.controller.ts`, `package.json`, `ReportsPageContainer.tsx`, `database-sync.controller.ts`, `students.controller.ts`?**
+  _High betweenness centrality (0.100) - this node is a cross-community bridge._
+- **Why does `Module Ownership Map` connect `Module Ownership Map` to `dashboard.tsx`, `database-sync.service.ts`, `Canonical Files Inventory`, `Repository Map`, `Plan: Port the Claude Code engineering workflow into dlsu-gate-system-portal`, `UserManagementPageContainer.tsx`, `login.service.ts`, `users.controller.ts`, `LoginForm.tsx`, `CustomExport.tsx`, `app/layout.tsx`, `auth/jwt-auth.guard.ts`, `Task Router`, `useReportSocket.tsx`, `ScreensaverService`, `health.controller.ts`, `Employee`, `ReportsService`, `Database Contracts`, `admin.controller.ts`, `Agent Orchestration`, `database-sync.controller.ts`, `students.controller.ts`, `sync.service.ts`?**
+  _High betweenness centrality (0.077) - this node is a cross-community bridge._
+- **What connects `dir`, `persona`, `dir` to the rest of the system?**
+  _955 weakly-connected nodes found - possible documentation gaps or missing edges._

@@ -94,6 +94,7 @@ This index follows the `symbol/area → path — one-line purpose` style. It cov
 | Mock mode | `apps/portal-web/src/lib/mock-mode.ts` | `isMockMode()` reads `NEXT_PUBLIC_MOCK_MODE`. |
 | Campus mode | `apps/portal-web/src/lib/campus-mode.ts` | `getCampusMode()` reads `NEXT_PUBLIC_CAMPUS` → `"MTL"` or `"DASMA"`. |
 | Access status | `apps/portal-web/src/lib/access-status.ts` | `getAccessStatus()` — DASMA 3-tier vs MTL binary status/remarks forking. |
+| BioStar payload normalizers | `apps/portal-web/src/lib/biostar-event.ts` | `normalizeDeviceId()`/`normalizeUserId()`/`deviceDisplayName()` for wsapi events; `parseDeviceRows()` validates the `/api/devices` proxy reply (`EmployeeForm`, `EditDetailsDialog`, `TurnstileGrid`) — a non-array `rows` throws instead of crashing render. |
 | Report mapper | `apps/portal-web/src/lib/report-mapper.ts` | `mapScanToReportData()` — maps BioStar scan events to report POST payloads. |
 | Middleware | `apps/portal-web/src/middleware.ts` | Route protection via `user` cookie JWT decode. KNOWN BUG: matcher list includes literal `"dashboard"` (missing leading slash), never matches; role-based redirect logic exists but is commented out. |
 | Report socket hook | `apps/portal-web/src/hooks/useReportSocket.tsx` | socket.io-client to backend `NEXT_PUBLIC_API_URL`, path `/socket.io/`, listens for `stats-update`. Branches to fake data in mock mode. |
