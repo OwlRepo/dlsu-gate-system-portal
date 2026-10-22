@@ -1,8 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import axios from "axios";
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import TurnstileGrid from "@/components/employee-dashboard/TurnstileGrid";
 import type { ScanProps } from "@/lib/types";
+
+vi.mock("axios");
 
 vi.mock("@/hooks/useGetEmployeeDetails", () => ({
   useGetEmployeeDetails: () => ({
@@ -29,6 +32,26 @@ const scanDetails: ScanProps[] = [
 ];
 
 describe("TurnstileGrid", () => {
+  it("regression: keeps rendering the turnstile cards when /api/devices rows is not an array", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CAMPUS", "MAIN");
+    vi.mocked(axios.get).mockResolvedValue({
+      data: { data: { DeviceCollection: { rows: {} } } },
+    });
+
+    render(
+      React.createElement(TurnstileGrid, {
+        scanDetails,
+        setScanDetail: () => {},
+        turnstileCount: 1,
+        sessionId: "s1",
+      })
+    );
+
+    await waitFor(() => expect(vi.mocked(axios.get)).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.getByText("Turnstile 1")).toBeInTheDocument();
+  });
+
   it("hides remarks block in MTL mode", () => {
     vi.stubEnv("NEXT_PUBLIC_CAMPUS", "MAIN");
     const { container } = render(

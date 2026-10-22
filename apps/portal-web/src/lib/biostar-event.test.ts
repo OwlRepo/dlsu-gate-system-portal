@@ -4,6 +4,7 @@ import {
   deviceDisplayName,
   normalizeDeviceId,
   normalizeUserId,
+  parseDeviceRows,
 } from "@/lib/biostar-event";
 
 // Real BioStar 2 wsapi events carry user_id and device_id as nested objects
@@ -64,5 +65,44 @@ describe("deviceDisplayName", () => {
     expect(deviceDisplayName({ id: "541", name: "  " }, "541")).toBe(
       "Device 541",
     );
+  });
+});
+
+describe("parseDeviceRows", () => {
+  it("error: throws when rows is an object instead of a list", () => {
+    expect(() =>
+      parseDeviceRows({ data: { DeviceCollection: { rows: {} } } }),
+    ).toThrow(/Unexpected \/api\/devices reply/);
+  });
+
+  it("error: throws on the BioStar busy reply that carries no DeviceCollection", () => {
+    expect(() =>
+      parseDeviceRows({
+        data: { Response: { code: "4", message: "Synced Web Request is not respond in timeout period" } },
+      }),
+    ).toThrow(/Unexpected \/api\/devices reply/);
+  });
+
+  it("edge: drops rows without id or name and stringifies numeric fields", () => {
+    expect(
+      parseDeviceRows({
+        data: {
+          DeviceCollection: {
+            rows: [{ id: 544108143, name: "Gate 1" }, { id: "2" }, { name: "no id" }, null],
+          },
+        },
+      }),
+    ).toEqual([{ id: "544108143", name: "Gate 1" }]);
+  });
+
+  it("happy: returns the devices of a well-formed reply", () => {
+    expect(
+      parseDeviceRows({
+        data: { DeviceCollection: { rows: [{ id: "1", name: "Gate 1" }, { id: "2", name: "Gate 2" }] } },
+      }),
+    ).toEqual([
+      { id: "1", name: "Gate 1" },
+      { id: "2", name: "Gate 2" },
+    ]);
   });
 });
