@@ -48,6 +48,7 @@ const EditDetailsDialog: React.FC<EditDetailsDialogProps> = ({
   const [password, setPassword] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
   const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -205,16 +206,14 @@ const EditDetailsDialog: React.FC<EditDetailsDialogProps> = ({
 
           if (response) {
             setDevices(parseDeviceRows(response.data));
+            setDevicesError(null);
             setLoading(false);
           }
         } catch (err) {
           console.error("Error fetching event data:", err);
-          toast({
-            title: "Error",
-            description: "Devices could not be loaded. Close and reopen the dialog to retry.",
-            variant: "destructive",
-            duration: 3000,
-          });
+          setDevicesError(
+            "Devices could not be loaded. Close and reopen the dialog to retry.",
+          );
           setLoading(false);
         }
       };
@@ -314,6 +313,11 @@ const EditDetailsDialog: React.FC<EditDetailsDialogProps> = ({
                     placeholder="Select device..."
                     description={`Selected: ${selectedDevices.length}`}
                   />
+                )}
+                {devicesError && (
+                  <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+                    {devicesError}
+                  </p>
                 )}
               </div>
             )}

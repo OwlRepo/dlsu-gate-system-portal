@@ -76,10 +76,11 @@ export function parseDeviceRows(payload: unknown): BiostarDevice[] {
   }
 
   return (rows as unknown[]).flatMap((row) => {
-    const { id, name } = (row ?? {}) as { id?: unknown; name?: unknown };
-    if (id === undefined || id === null || name === undefined || name === null) {
+    const id = (row as { id?: unknown } | null)?.id;
+    if (id === undefined || id === null) {
       return [];
     }
-    return [{ id: String(id), name: String(name) }];
+    const normalizedId = String(id);
+    return [{ id: normalizedId, name: deviceDisplayName(row, normalizedId) }];
   });
 }

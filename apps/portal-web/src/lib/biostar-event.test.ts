@@ -83,7 +83,7 @@ describe("parseDeviceRows", () => {
     ).toThrow(/Unexpected \/api\/devices reply/);
   });
 
-  it("edge: drops rows without id or name and stringifies numeric fields", () => {
+  it("edge: drops rows without id, names unnamed rows Device <id>, stringifies numeric ids", () => {
     expect(
       parseDeviceRows({
         data: {
@@ -92,7 +92,10 @@ describe("parseDeviceRows", () => {
           },
         },
       }),
-    ).toEqual([{ id: "544108143", name: "Gate 1" }]);
+    ).toEqual([
+      { id: "544108143", name: "Gate 1" },
+      { id: "2", name: "Device 2" },
+    ]);
   });
 
   it("happy: returns the devices of a well-formed reply", () => {

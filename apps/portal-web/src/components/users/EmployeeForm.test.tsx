@@ -28,10 +28,8 @@ describe("EmployeeForm", () => {
     render(React.createElement(EmployeeForm, { onClose: () => {} }));
 
     await waitFor(() => expect(vi.mocked(axios.get)).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(toast).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Error", variant: "destructive" }),
-      ),
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Devices could not be loaded. Close and reopen the form to retry.",
     );
     expect(screen.getByText("Select device...")).toBeInTheDocument();
     expect(screen.getByLabelText("Username")).toBeInTheDocument();
@@ -47,6 +45,6 @@ describe("EmployeeForm", () => {
     await waitFor(() => expect(vi.mocked(axios.get)).toHaveBeenCalled());
     fireEvent.click(await screen.findByText("Select device..."));
     expect(await screen.findByText("Gate 1")).toBeInTheDocument();
-    expect(toast).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

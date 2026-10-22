@@ -24,6 +24,7 @@ export default function EmployeeForm({ onClose }: formProps) {
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
   const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
@@ -133,16 +134,14 @@ export default function EmployeeForm({ onClose }: formProps) {
 
           if (response) {
             setDevices(parseDeviceRows(response.data));
+            setDevicesError(null);
             setLoading(false);
           }
         } catch (err) {
           console.error("Error fetching event data:", err);
-          toast({
-            title: "Error",
-            description: "Devices could not be loaded. Close and reopen the form to retry.",
-            variant: "destructive",
-            duration: 3000,
-          });
+          setDevicesError(
+            "Devices could not be loaded. Close and reopen the form to retry.",
+          );
           setLoading(false);
         }
       };
@@ -222,6 +221,11 @@ export default function EmployeeForm({ onClose }: formProps) {
             placeholder="Select device..."
             description={`Selected: ${selectedDevices.length}`}
           />
+        )}
+        {devicesError && (
+          <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            {devicesError}
+          </p>
         )}
       </div>
       <div className="text-right !mt-8">
