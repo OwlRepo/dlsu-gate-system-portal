@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { In, IsNull, Raw } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import * as sql from 'mssql';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -35,6 +36,9 @@ const ACTIVATION_VALIDITY_YEARS = 10;
  * for good.
  */
 const CSV_IMPORT_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** Bookkeeping-only writes spread this in so TypeORM does not stamp updatedAt. */
+const KEEP_UPDATED_AT = { updatedAt: () => '"updatedAt"' };
 
 /** The audit window reaches back this far past the last clean pull. */
 const AUDIT_OVERLAP_MS = 5 * 60 * 1000;
@@ -560,8 +564,13 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
                 remarkNeedsClearing ||
                 !existingStudent.remarks_checked_at
               ) {
-                const updatePayload: Partial<Student> = {
-                  updatedAt: new Date(),
+                const updatePayload: QueryDeepPartialEntity<Student> = {
+                  ...(photoChanged ||
+                  uniqueIdChanged ||
+                  nameChanged ||
+                  isArchivedChanged
+                    ? { updatedAt: new Date() }
+                    : KEEP_UPDATED_AT),
                   // Stamped every time we see this person's detail, so the
                   // bounded sweep can tell who still needs looking at.
                   remarks_checked_at: new Date(),
@@ -874,7 +883,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       if (notInBiostar.size > 0) {
         await this.studentRepository.update(
           { ID_Number: In([...notInBiostar]) },
-          { remarks_checked_at: checkedAt },
+          { remarks_checked_at: checkedAt, ...KEEP_UPDATED_AT },
         );
       }
 
@@ -906,7 +915,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
         if (!detail) {
           await this.studentRepository.update(
             { ID_Number: student.ID_Number },
-            { remarks_checked_at: checkedAt },
+            { remarks_checked_at: checkedAt, ...KEEP_UPDATED_AT },
           );
           continue;
         }
@@ -919,6 +928,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
           { ID_Number: student.ID_Number },
           {
             remarks_checked_at: checkedAt,
+            ...KEEP_UPDATED_AT,
             ...(needsClearing ? { remarks_clear_pending: true } : {}),
           },
         );
@@ -1088,7 +1098,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
               if (!hash) continue;
               await this.studentRepository.update(
                 { ID_Number: row.user_id },
-                { biostar_row_hash: hash },
+                { biostar_row_hash: hash, ...KEEP_UPDATED_AT },
               );
             }
           },
@@ -2676,7 +2686,7 @@ export class DatabaseSyncDasmaPathService implements IDatabaseSyncPath {
       if (flagsToClear.length > 0) {
         await this.studentRepository.update(
           { ID_Number: In(flagsToClear) },
-          { remarks_clear_pending: false },
+          { remarks_clear_pending: false, ...KEEP_UPDATED_AT },
         );
       }
 
