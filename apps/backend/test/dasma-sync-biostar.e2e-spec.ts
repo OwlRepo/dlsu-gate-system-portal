@@ -329,6 +329,42 @@ describe('Dasma sync — real HTTP, real PostgreSQL', () => {
     );
   }, 90000);
 
+  it('regression: bookkeeping-only writes keep updatedAt on real PostgreSQL', async () => {
+    const PINNED = '2020-01-01 00:00:00';
+    const stamps = () =>
+      dataSource.query(
+        `SELECT "updatedAt" AS updated_at, remarks_checked_at, biostar_row_hash
+           FROM students WHERE "ID_Number" = '12100001'`,
+      );
+
+    await service.executeDatabaseSync('e2e-1');
+    await dataSource.query(
+      `UPDATE students
+          SET "updatedAt" = $1, remarks_checked_at = NULL, biostar_row_hash = NULL
+        WHERE "ID_Number" = '12100001'`,
+      [PINNED],
+    );
+
+    // Source is unchanged, so the only writes are the sweep stamp and the hash.
+    await service.executeDatabaseSync('e2e-2');
+
+    const [after] = await stamps();
+    expect(after.remarks_checked_at).not.toBeNull();
+    expect(after.biostar_row_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(new Date(after.updated_at).getTime()).toBe(
+      new Date(PINNED).getTime(),
+    );
+
+    // Control: a real source change still bumps it.
+    sourceRows = [sourceRow({ LastName: 'Reyes' })];
+    await service.executeDatabaseSync('e2e-3');
+
+    const [bumped] = await stamps();
+    expect(new Date(bumped.updated_at).getTime()).toBeGreaterThan(
+      new Date(PINNED).getTime(),
+    );
+  }, 90000);
+
   // ==================================================================
   // Clearing a remark over real HTTP
   // ==================================================================

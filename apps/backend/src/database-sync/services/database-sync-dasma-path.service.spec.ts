@@ -3493,6 +3493,32 @@ describe('DatabaseSyncDasmaPathService', () => {
       expect(studentRepo.byId(ID).updatedAt).toEqual(new Date(DAY2));
     });
 
+    it('edge: a detail pull that changes only the card (Unique_ID) bumps updatedAt', async () => {
+      seedMatchingStudent({ Unique_ID: '1111' } as Partial<Student>);
+      pullOnePage();
+      biostarDetails = {
+        [ID]: pullDetail({ credentials: { cards: [{ card_id: '2222' }] } }),
+      };
+      setClock(DAY2);
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId(ID).Unique_ID).toBe('2222');
+      expect(studentRepo.byId(ID).updatedAt).toEqual(new Date(DAY2));
+    });
+
+    it('edge: a detail pull that changes only isArchived bumps updatedAt', async () => {
+      seedMatchingStudent({ isArchived: false });
+      pullOnePage();
+      biostarDetails = { [ID]: pullDetail({ disabled: 'true' }) };
+      setClock(DAY2);
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId(ID).isArchived).toBe(true);
+      expect(studentRepo.byId(ID).updatedAt).toEqual(new Date(DAY2));
+    });
+
     it('regression: a remark-sweep run leaves every swept student updatedAt unchanged', async () => {
       // One student per sweep write site: absent from BioStar's user list
       // (bulk stamp), listed but BioStar answers 400 (stamp), and listed with a
