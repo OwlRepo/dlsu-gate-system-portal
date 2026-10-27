@@ -290,9 +290,9 @@
     "semantic_hash": "5f3b24f04127f4bea64b27c582b109d0"
   },
   "apps/backend/src/database-sync/services/database-sync-main-path.service.ts": {
-    "mtime": 1793068952.29156,
-    "ast_hash": "56daa8faf4e51796cca9ab57f26ba332",
-    "semantic_hash": "56daa8faf4e51796cca9ab57f26ba332"
+    "mtime": 1793071978.414762,
+    "ast_hash": "a70e96842eeb9f749b4ba14c4e1396e7",
+    "semantic_hash": "a70e96842eeb9f749b4ba14c4e1396e7"
   },
   "apps/backend/src/database-sync/services/database-sync-path.interface.ts": {
     "mtime": 1793068952.2919085,
@@ -2365,9 +2365,9 @@
     "semantic_hash": "8265ad0d05c21efd75d657141a767ea7"
   },
   "docs/ai/contracts/db-contracts.md": {
-    "mtime": 1793070998.4301152,
-    "ast_hash": "c0a83fc516c01929fe240d0d4e3f9362",
-    "semantic_hash": "c0a83fc516c01929fe240d0d4e3f9362"
+    "mtime": 1793072194.4574952,
+    "ast_hash": "999ffcad1983d2ae79b3bd1b10177856",
+    "semantic_hash": "999ffcad1983d2ae79b3bd1b10177856"
   },
   "docs/ai/dev-environment.md": {
     "mtime": 1793068952.3287916,
@@ -2598,5 +2598,15 @@
     "mtime": 1793070123.5879831,
     "ast_hash": "98ec1e55b5d7479a5b68bf99f66e4d40",
     "semantic_hash": "98ec1e55b5d7479a5b68bf99f66e4d40"
+  },
+  "apps/backend/src/database-sync/services/database-sync-main-path.service.spec.ts": {
+    "mtime": 1793072177.4298668,
+    "ast_hash": "66e720573b492fba5b29157238b497af",
+    "semantic_hash": "66e720573b492fba5b29157238b497af"
+  },
+  "docs/plans/main-unique-id-compare.md": {
+    "mtime": 1793071887.7995868,
+    "ast_hash": "36a77f82ccc1873b6b9a879c27478f3f",
+    "semantic_hash": "36a77f82ccc1873b6b9a879c27478f3f"
   }
 }

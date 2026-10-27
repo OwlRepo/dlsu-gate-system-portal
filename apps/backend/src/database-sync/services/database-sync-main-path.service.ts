@@ -20,6 +20,35 @@ import { SyncSchedule } from '../entities/sync-schedule.entity';
 import { DatabaseSyncCommonService } from './shared/database-sync-common.service';
 import { BiostarApiService } from './shared/biostar-api.service';
 
+type MainStudentCompare = Pick<
+  Student,
+  | 'Name'
+  | 'Lived_Name'
+  | 'Remarks'
+  | 'Photo'
+  | 'Campus_Entry'
+  | 'isArchived'
+  | 'group'
+> & { Unique_ID: string | number | null };
+
+export function isMainStudentChanged(
+  existing: MainStudentCompare,
+  next: MainStudentCompare,
+): boolean {
+  return (
+    existing.Name !== next.Name ||
+    existing.Lived_Name !== next.Lived_Name ||
+    existing.Remarks !== next.Remarks ||
+    existing.Photo !== next.Photo ||
+    existing.Campus_Entry !== next.Campus_Entry ||
+    // bigint comes back from PG as a string; the source card is hex-parsed to a number.
+    String(existing.Unique_ID ?? '').trim() !==
+      String(next.Unique_ID ?? '').trim() ||
+    existing.isArchived !== next.isArchived ||
+    existing.group !== next.group
+  );
+}
+
 @Injectable()
 export class DatabaseSyncMainPathService implements IDatabaseSyncPath {
   private readonly logger = new Logger(DatabaseSyncMainPathService.name);
@@ -303,14 +332,16 @@ export class DatabaseSyncMainPathService implements IDatabaseSyncPath {
           if (!existing) {
             toCreate.push(data);
           } else if (
-            existing.Name !== record.Name ||
-            existing.Lived_Name !== record.Lived_Name ||
-            existing.Remarks !== record.Remarks ||
-            existing.Photo !== record.Photo ||
-            existing.Campus_Entry !== record.Campus_Entry ||
-            existing.Unique_ID !== uniqueId ||
-            existing.isArchived !== record.isArchived ||
-            existing.group !== (groupValue ?? null)
+            isMainStudentChanged(existing, {
+              Name: record.Name,
+              Lived_Name: record.Lived_Name,
+              Remarks: record.Remarks,
+              Photo: record.Photo,
+              Campus_Entry: record.Campus_Entry,
+              Unique_ID: uniqueId,
+              isArchived: record.isArchived,
+              group: groupValue ?? null,
+            })
           ) {
             toUpdate.push({ ...data, id: existing.id });
           }
