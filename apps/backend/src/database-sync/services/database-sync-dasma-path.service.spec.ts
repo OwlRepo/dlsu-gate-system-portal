@@ -172,7 +172,17 @@ describe('DatabaseSyncDasmaPathService', () => {
       this.rows = this.rows.map((r) => {
         if (!this.matches(where, r)) return r;
         affected++;
-        return { ...r, ...patch };
+        // Models TypeORM's @UpdateDateColumn: a function value is a raw SQL
+        // expression (`"updatedAt"` = keep), a Date is used as-is, and an
+        // absent key is stamped with now.
+        const stamp = (patch as { updatedAt?: unknown }).updatedAt;
+        const updatedAt =
+          typeof stamp === 'function'
+            ? (r as { updatedAt?: Date }).updatedAt
+            : stamp instanceof Date
+              ? stamp
+              : new Date();
+        return { ...r, ...patch, updatedAt };
       });
       return { affected };
     }
@@ -3315,5 +3325,262 @@ describe('DatabaseSyncDasmaPathService', () => {
 
       expect(studentRepo.byId('12100001').Unique_ID).toBe('1234567890');
     });
+  });
+
+  // =====================================================================
+  // Bookkeeping-only writes must not move `updatedAt`
+  //
+  // GET /sync/students?since= returns every student whose
+  // COALESCE(updatedAt, createdAt) moved. Columns mobile never reads as a
+  // change signal (remarks_checked_at, remarks_clear_pending,
+  // biostar_row_hash) were stamping updatedAt anyway, so unchanged students
+  // landed in every phone's delta. The clock is advanced INSIDE the step under
+  // test where needed, because a frozen clock would make a bump and a keep
+  // look identical.
+  // =====================================================================
+  describe('bookkeeping writes keep updatedAt', () => {
+    const ID = '12100001';
+    /** The value a "real change" last set; every test pins rows back to it. */
+    const T0 = new Date('2026-08-01T00:00:00+08:00');
+    const DAY1 = '2026-08-26T08:00:00+08:00';
+    const DAY2 = '2026-08-27T08:00:00+08:00';
+    const DAY2_LATER = '2026-08-27T09:00:00+08:00';
+
+    const pinUpdatedAt = (at: Date = T0) =>
+      studentRepo.rows.forEach((r) => {
+        r.updatedAt = at;
+      });
+
+    const importCalls = () =>
+      (axios.post as jest.Mock).mock.calls.filter(([url]) =>
+        String(url).includes('/api/users/csv_import'),
+      );
+
+    /** Same fake BioStar as beforeEach, but the import moves the clock on. */
+    const importAdvancesClockTo = (iso: string) =>
+      (axios.post as jest.Mock).mockImplementation(async (url: string) => {
+        if (url.includes('/api/attachments')) {
+          return { data: { filename: 'fake-upload.csv' } };
+        }
+        if (url.includes('/api/users/csv_import')) {
+          setClock(iso);
+          return { data: { Response: { code: '0' } } };
+        }
+        return { data: {} };
+      });
+
+    const pullDetail = (over: Record<string, unknown> = {}) => ({
+      User: {
+        user_id: ID,
+        name: 'Dela Cruz, Juan',
+        photo: 'BASE64PHOTO',
+        disabled: 'false',
+        ...over,
+      },
+    });
+
+    /** A stored row that already matches `pullDetail()`, so nothing "changed". */
+    const seedMatchingStudent = (over: Partial<Student> = {}) =>
+      studentRepo.rows.push({
+        ID_Number: ID,
+        Name: 'Dela Cruz, Juan',
+        Photo: 'BASE64PHOTO',
+        Campus_Entry: 'Y',
+        isArchived: false,
+        Remarks: null,
+        remarks_checked_at: new Date('2026-08-01T00:00:00+08:00'),
+        updatedAt: T0,
+        ...over,
+      } as Student);
+
+    const pullOnePage = () => {
+      biostarPages = [
+        {
+          total: 1,
+          rows: [
+            {
+              user_id: ID,
+              name: 'Dela Cruz, Juan',
+              photo_exists: true,
+              card_count: '0',
+              last_modified: '100',
+            },
+          ],
+        },
+      ];
+    };
+
+    it('error: a failed row-hash write leaves updatedAt alone and the row is exported again next run', async () => {
+      setClock('2026-08-25T08:00:00+08:00');
+      await service.executeDatabaseSync('settle');
+      pinUpdatedAt();
+      studentRepo.byId(ID).biostar_row_hash = undefined;
+
+      const realUpdate = studentRepo.update.bind(studentRepo);
+      const failing = jest
+        .spyOn(studentRepo, 'update')
+        .mockImplementation(async (where, patch) => {
+          if ('biostar_row_hash' in patch) throw new Error('DB write failed');
+          return realUpdate(where, patch);
+        });
+      setClock(DAY1);
+      await service.executeDatabaseSync('run-1');
+      expect(studentRepo.byId(ID).updatedAt).toEqual(T0);
+      expect(studentRepo.byId(ID).biostar_row_hash).toBeUndefined();
+
+      failing.mockRestore();
+      const importsBefore = importCalls().length;
+      setClock(DAY2);
+      await service.executeDatabaseSync('run-2');
+
+      expect(importCalls().length).toBe(importsBefore + 1);
+      expect(studentRepo.byId(ID).biostar_row_hash).toEqual(expect.any(String));
+      expect(studentRepo.byId(ID).updatedAt).toEqual(T0);
+    }, 30000);
+
+    it('edge: a detail pull entered only because remarks_checked_at is empty keeps updatedAt', async () => {
+      seedMatchingStudent({ remarks_checked_at: null });
+      pullOnePage();
+      biostarDetails = { [ID]: pullDetail() };
+      setClock(DAY2);
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId(ID).remarks_checked_at).toEqual(new Date(DAY2));
+      expect(studentRepo.byId(ID).updatedAt).toEqual(T0);
+    });
+
+    it('edge: a detail pull entered only because a remark needs clearing keeps updatedAt', async () => {
+      seedMatchingStudent({ Remarks: null });
+      pullOnePage();
+      biostarDetails = {
+        [ID]: pullDetail({
+          user_custom_fields: [
+            { custom_field: { name: 'Remarks' }, item: 'Owes library fee' },
+          ],
+        }),
+      };
+      setClock(DAY2);
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId(ID).remarks_clear_pending).toBe(true);
+      expect(studentRepo.byId(ID).remarks_checked_at).toEqual(new Date(DAY2));
+      expect(studentRepo.byId(ID).updatedAt).toEqual(T0);
+    });
+
+    it('edge: a detail pull that changes the Photo bumps updatedAt', async () => {
+      seedMatchingStudent({ Photo: '/9j/OLDPHOTO' });
+      pullOnePage();
+      biostarDetails = { [ID]: pullDetail({ photo: '/9j/NEWPHOTO' }) };
+      setClock(DAY2);
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId(ID).Photo).toBe('/9j/NEWPHOTO');
+      expect(studentRepo.byId(ID).updatedAt).toEqual(new Date(DAY2));
+    });
+
+    it('edge: a detail pull that changes the Name bumps updatedAt', async () => {
+      seedMatchingStudent();
+      pullOnePage();
+      biostarDetails = { [ID]: pullDetail({ name: 'Dela Cruz, Juan Carlos' }) };
+      setClock(DAY2);
+
+      await service.syncFromBiostar('biostar-1');
+
+      expect(studentRepo.byId(ID).Name).toBe('Dela Cruz, Juan Carlos');
+      expect(studentRepo.byId(ID).updatedAt).toEqual(new Date(DAY2));
+    });
+
+    it('regression: a remark-sweep run leaves every swept student updatedAt unchanged', async () => {
+      // One student per sweep write site: absent from BioStar's user list
+      // (bulk stamp), listed but BioStar answers 400 (stamp), and listed with a
+      // detail (stamp).
+      Object.assign(biostarApi, {
+        listUserCardCounts: jest.fn(async () => ({
+          counts: new Map([
+            ['12100002', 0],
+            ['12100003', 0],
+          ]),
+          complete: true,
+        })),
+      });
+      sourceRows = [
+        sourceRow({ ID: '12100001' }),
+        sourceRow({ ID: '12100002' }),
+        sourceRow({ ID: '12100003' }),
+      ];
+      biostarDetails = { '12100002': pullDetail({ user_id: '12100002' }) };
+      setClock(DAY1);
+      await service.executeDatabaseSync('settle');
+
+      pinUpdatedAt();
+      studentRepo.rows.forEach((r) => {
+        r.remarks_checked_at = null;
+      });
+      setClock(DAY2);
+      await service.executeDatabaseSync('sweep-run');
+
+      for (const id of ['12100001', '12100002', '12100003']) {
+        expect(studentRepo.byId(id).remarks_checked_at).toEqual(new Date(DAY2));
+        expect(studentRepo.byId(id).updatedAt).toEqual(T0);
+      }
+    });
+
+    it('regression: a BioStar export plus hash stamp leaves updatedAt at the value the real change set', async () => {
+      setClock(DAY1);
+      await service.executeDatabaseSync('settle');
+      pinUpdatedAt();
+
+      sourceRows = [sourceRow({ LastName: 'Dela Cruz-Reyes' })];
+      importAdvancesClockTo(DAY2_LATER);
+      setClock(DAY2);
+      await service.executeDatabaseSync('run-2');
+
+      expect(studentRepo.byId(ID).biostar_row_hash).toEqual(expect.any(String));
+      // The real change stamped DAY2; the hash write came an hour later.
+      expect(studentRepo.byId(ID).updatedAt).toEqual(new Date(DAY2));
+    });
+
+    it('regression: a confirmed remark clear leaves updatedAt at the value the real change set', async () => {
+      sourceRows = [sourceRow({ Remarks: 'Owes library fee' })];
+      setClock(DAY1);
+      await service.executeDatabaseSync('settle');
+      pinUpdatedAt();
+
+      (biostarApi.clearUserCustomField as jest.Mock).mockImplementation(
+        async () => {
+          setClock(DAY2_LATER);
+          return true;
+        },
+      );
+      sourceRows = [sourceRow({ Remarks: null })];
+      setClock(DAY2);
+      await service.executeDatabaseSync('run-2');
+
+      expect(biostarApi.clearUserCustomField).toHaveBeenCalledTimes(1);
+      expect(studentRepo.byId(ID).remarks_clear_pending).toBe(false);
+      expect(studentRepo.byId(ID).updatedAt).toEqual(new Date(DAY2));
+    });
+
+    it.each([
+      ['Name', { LastName: 'Dela Cruz-Reyes' }],
+      ['Remarks', { Remarks: 'Owes library fee' }],
+      ['isArchived', { IsArchived: true }],
+    ])(
+      'happy: a source %s change still bumps updatedAt',
+      async (_label, change) => {
+        setClock(DAY1);
+        await service.executeDatabaseSync('settle');
+        pinUpdatedAt();
+
+        sourceRows = [sourceRow(change)];
+        setClock(DAY2);
+        await service.executeDatabaseSync('run-2');
+
+        expect(studentRepo.byId(ID).updatedAt).toEqual(new Date(DAY2));
+      },
+    );
   });
 });
