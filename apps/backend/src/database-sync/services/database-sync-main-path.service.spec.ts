@@ -84,6 +84,15 @@ describe('isMainStudentChanged', () => {
     ).toBe(false);
   });
 
+  it('edge: a card above 2^53 matches the text PostgreSQL stored for it', () => {
+    expect(
+      isMainStudentChanged(
+        baseExisting({ Unique_ID: '18014398509481984' }),
+        baseNext({ Unique_ID: 2 ** 54 }),
+      ),
+    ).toBe(false);
+  });
+
   it('regression: a different incoming card is changed', () => {
     expect(
       isMainStudentChanged(
